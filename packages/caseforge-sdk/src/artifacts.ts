@@ -66,24 +66,59 @@ async function coverageSatisfied(runDir: string): Promise<boolean> {
   return Boolean(verdict && (verdict.attack_coverage || verdict.case_completeness))
 }
 
-/** Validate the artifacts of a run directory. */
+/**
+ * Scan audit.jsonl for a sealed `manifest_verify` result reporting overall pass.
+ * The interactive agent path records the manifest_verify tool output on the
+ * hash-chained audit log (rather than writing a separate manifest_verify.json),
+ * so this is where its seal is confirmed.
+ */
+async function auditSealVerified(runDir: string): Promise<boolean> {
+  let text: string
+  try {
+    text = await readFile(join(runDir, "audit.jsonl"), "utf8")
+  } catch {
+    return false
+  }
+  for (const line of text.split("\n")) {
+    const t = line.trim()
+    if (!t || !t.includes("manifest_verify")) continue
+    try {
+      const e = JSON.parse(t) as { payload?: { tool_name?: string; output?: unknown } }
+      const tool = e.payload?.tool_name ?? ""
+      if (/manifest_verify/.test(tool) && manifestVerified(e.payload?.output)) return true
+    } catch {
+      /* skip malformed line */
+    }
+  }
+  return false
+}
+
+/**
+ * Validate a run directory. A run is COMPLETE when its custody holds:
+ *   - `run.manifest.json` (signed) and `audit.jsonl` (hash chain) are present, AND
+ *   - the manifest verifies — either a `manifest_verify.json` with overall pass
+ *     (toolkit auto-runner) or a `manifest_verify` seal on the audit chain
+ *     (interactive agent path).
+ * `verdict.json` / `coverage_manifest.json` are optional REPORTING artifacts:
+ * their presence upgrades a "custody-sealed" run to a "full-report" run, but a
+ * read-only agent cannot write them, so they are not required for completeness.
+ */
 export async function validateRun(runDir: string): Promise<RunValidation> {
   const present: string[] = []
   const missing: string[] = []
-  for (const name of HARD_REQUIRED) {
+  for (const name of REQUIRED_ARTIFACTS) {
     if (existsSync(join(runDir, name))) present.push(name)
-    else missing.push(name)
   }
-  const hasCoverage = await coverageSatisfied(runDir)
-  if (existsSync(join(runDir, "coverage_manifest.json"))) present.push("coverage_manifest.json")
-  else if (!hasCoverage) missing.push("coverage_manifest.json (or coverage embedded in verdict.json)")
+  // Hard custody files — both paths must produce these.
+  const custodyFiles = ["run.manifest.json", "audit.jsonl"].filter((f) => !existsSync(join(runDir, f)))
 
-  // Always evaluate manifest custody when the file is present, so reporting is
-  // accurate even for an otherwise-incomplete run.
-  const custodyValid = manifestVerified(await readJson(join(runDir, "manifest_verify.json")))
+  // Seal verified two ways: a manifest_verify.json file, or the audit-chain seal.
+  const custodyValid =
+    manifestVerified(await readJson(join(runDir, "manifest_verify.json"))) || (await auditSealVerified(runDir))
 
-  if (missing.length > 0) {
-    return { status: "incomplete", present, missing, custodyValid, detail: `run incomplete — missing ${missing.join(", ")}` }
+  if (custodyFiles.length > 0) {
+    missing.push(...custodyFiles)
+    return { status: "incomplete", present, missing, custodyValid, detail: `run incomplete — missing ${custodyFiles.join(", ")}` }
   }
   if (!custodyValid) {
     return {
@@ -91,10 +126,17 @@ export async function validateRun(runDir: string): Promise<RunValidation> {
       present,
       missing,
       custodyValid: false,
-      detail: "custody invalid — manifest_verify.json did not confirm verification",
+      detail: "custody invalid — no manifest_verify overall:true (in manifest_verify.json or the audit chain)",
     }
   }
-  return { status: "complete", present, missing, custodyValid: true, detail: "run complete and custody verified" }
+  const fullReport = existsSync(join(runDir, "verdict.json")) && (await coverageSatisfied(runDir))
+  return {
+    status: "complete",
+    present,
+    missing,
+    custodyValid: true,
+    detail: fullReport ? "run complete and custody verified (full report)" : "run complete and custody verified (custody-sealed; no verdict.json report)",
+  }
 }
 
 // --- per-finding custody verification -------------------------------------

@@ -45,9 +45,9 @@ ok("accepts valid finding", validateFinding({ id: "1", title: "t", verdict: "NO_
 console.log("artifact + custody validator:")
 const dir = mkdtempSync(join(tmpdir(), "caseforge-run-"))
 try {
-  // 1. empty dir => incomplete
+  // 1. empty dir => incomplete (missing the hard custody files)
   let r = await validateRun(dir)
-  ok("missing artifacts => incomplete", r.status === "incomplete" && r.missing.length === REQUIRED_ARTIFACTS.length)
+  ok("missing custody => incomplete", r.status === "incomplete" && r.missing.includes("run.manifest.json") && r.missing.includes("audit.jsonl"))
 
   // 2. all present but manifest verify fails => custody-invalid
   for (const a of REQUIRED_ARTIFACTS) writeFileSync(join(dir, a), a.endsWith(".jsonl") ? "" : "{}")
@@ -55,10 +55,33 @@ try {
   r = await validateRun(dir)
   ok("failed manifest verify => custody-invalid", r.status === "custody-invalid")
 
-  // 3. all present and verified => complete
+  // 3. auto-runner shape: all present and verified => complete (full report)
   writeFileSync(join(dir, "manifest_verify.json"), JSON.stringify({ ok: true }))
+  writeFileSync(join(dir, "verdict.json"), JSON.stringify({ attack_coverage: {}, findings: [] }))
   r = await validateRun(dir)
-  ok("all present + verified => complete", r.status === "complete" && r.custodyValid === true)
+  ok("auto-runner: all present + verified => complete", r.status === "complete" && r.custodyValid === true)
+
+  // 4. interactive agent seal: only run.manifest.json + audit.jsonl (seal on the
+  //    audit chain, no manifest_verify.json / verdict.json) => complete (custody-sealed)
+  const seal = mkdtempSync(join(tmpdir(), "caseforge-seal-"))
+  try {
+    writeFileSync(join(seal, "run.manifest.json"), "{}")
+    writeFileSync(
+      join(seal, "audit.jsonl"),
+      JSON.stringify({ kind: "tool_call_output", payload: { tool_name: "findevil-agent-mcp_manifest_verify", output: { overall: true } } }) + "\n",
+    )
+    const rs = await validateRun(seal)
+    ok("interactive seal (audit-chain) => complete", rs.status === "complete" && rs.custodyValid === true)
+    // negative: same but overall:false => custody-invalid
+    writeFileSync(
+      join(seal, "audit.jsonl"),
+      JSON.stringify({ kind: "tool_call_output", payload: { tool_name: "findevil-agent-mcp_manifest_verify", output: { overall: false } } }) + "\n",
+    )
+    const rf = await validateRun(seal)
+    ok("interactive seal overall:false => custody-invalid", rf.status === "custody-invalid")
+  } finally {
+    rmSync(seal, { recursive: true, force: true })
+  }
 
   // 4. citation custody against audit.jsonl
   writeFileSync(

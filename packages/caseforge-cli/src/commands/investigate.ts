@@ -116,7 +116,16 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
   }
 
   const command = opts.command ?? "triage"
-  const prompt = `Run the /${command} DFIR playbook on the evidence at: ${evidencePath} . Use only the VERDICT forensic MCP tools; cite each tool_call_id and output hash. Report findings scoped to SUSPICIOUS / INDETERMINATE / NO_EVIL.`
+  // Drive the COMPLETE flow: the evidence-type playbook, then the /verdict
+  // reason+seal phase. The run only counts as complete when the manifest is
+  // finalized AND manifest_verify reports overall:true — otherwise the produced
+  // case is a partial (unsealed) run and `caseforge verify` will reject it.
+  const prompt =
+    `Run a complete VERDICT investigation of the evidence at: ${evidencePath} .\n` +
+    `1. Run the /${command} DFIR playbook (open the case, run the forensic MCP tools, cite each tool_call_id + output_sha256).\n` +
+    `2. Then run the /verdict reason+seal phase to completion: verify each cited finding (verify_finding), judge (judge_findings, ACH), correlate (correlate_findings), report_qa, then SEAL — manifest_finalize (write run.manifest.json into the case directory) and manifest_verify.\n` +
+    `Use only the VERDICT forensic MCP tools; operate read-only on evidence. Scope the verdict to SUSPICIOUS / INDETERMINATE / NO_EVIL. ` +
+    `The run is NOT complete unless manifest_verify reports overall:true — do not stop before the manifest is finalized and verified.`
 
   console.error(`[caseforge] route=${routeId} model=${modelRef} privacy=${mode} evidence=${evidenceClass}`)
   console.error(`[caseforge] evidence=${evidencePath}`)
