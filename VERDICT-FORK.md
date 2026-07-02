@@ -60,10 +60,41 @@ cd packages/opencode && bun run script/build.ts --single --skip-embed-web-ui
 
 ## Re-syncing with upstream
 
-The branding lives in two files (`logo.ts`, `app.tsx`). To update:
+All branding is applied by one **idempotent** script,
+[`scripts/verdict-rebrand.sh`](scripts/verdict-rebrand.sh) (`bun run
+verdict:rebrand`), from canonical assets in [`.verdict/assets/`](.verdict/assets).
+So a re-sync never merges branding by hand — it pulls upstream's tree and re-runs
+the script.
+
+opencode's default branch is **`dev`** (not `main`). Because this fork is a
+snapshot (no shared history with upstream), treat upstream as a content source
+rather than a merge base:
 
 ```bash
-git remote add upstream https://github.com/sst/opencode.git
-git fetch upstream
-git merge upstream/main   # resolve conflicts in logo.ts / app.tsx if any
+git remote add upstream https://github.com/sst/opencode.git   # once
+git fetch upstream dev
+
+# bring upstream's files into the working tree, then re-apply branding
+git checkout upstream/dev -- .
+bun install
+bun run verdict:rebrand            # idempotent; re-brands logo/title/strings/persona
+
+# review, verify, commit
+git --no-pager diff --stat
+bun run --cwd packages/opencode typecheck && bun run --cwd packages/tui typecheck
+git add -A && git commit -m "sync: upstream dev $(git rev-parse --short upstream/dev) + rebrand"
+
+# rebuild the binary
+cd packages/opencode && bun run script/build.ts --single --skip-embed-web-ui
 ```
+
+**Always review `git diff` after a sync.** The word-boundary sweep is safe for
+code identifiers, but an upstream update could introduce a *new* functional
+"OpenCode" string (e.g. an HTTP header) that the sweep would wrongly flip — add
+it to the preserved list / exclusions in the script if so. The
+`verdict-branding` CI workflow checks the branding stays present, idempotent, and
+type-clean on every push.
+
+> Verified: pulling pristine `upstream/dev` files and running the script
+> re-derives the full branding (logo → VERDICT, title → VERDICT, persona
+> → "You are VERDICT", auto-update → no-op).
