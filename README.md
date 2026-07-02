@@ -24,6 +24,19 @@ agent runtime, on the model **you** choose — local (vLLM/Ollama) or cloud —
 under a strict privacy router. It runs on a laptop, DGX/Spark, SIFT workstation,
 server, or CI fixture runner. No examiner GUI required.
 
+## Where this fits — the VERDICT ecosystem
+
+VERDICT is a local-first DFIR agent platform split into three repos:
+
+| Repo | Role | It is… |
+|---|---|---|
+| **caseforge-core** (this repo) | Headless **controller**: privacy routing, model selection, structured findings, custody validation, the `caseforge` CLI. | the **driver** |
+| [verdict-opencode](https://github.com/TimothyVang/verdict-opencode) | The agent **runtime** — a branded fork of [opencode](https://github.com/sst/opencode); the `verdict` binary is built from it. | the **engine** |
+| [verdict-dfir-community](https://github.com/TimothyVang/verdict-dfir-community) | The **forensic toolkit**: `findevil-mcp` (32 Rust tools) + `findevil-agent-mcp` (14 Python tools) + DFIR doctrine + hash-chained custody. Set as `VERDICT_DFIR_HOME`. | the **evidence lab** |
+
+**Runtime flow:** `caseforge` (controls + guards) → `verdict` binary (runs the agent) → `findevil` MCP tools (do the forensics) → hash-chained custody → `caseforge verify`.
+caseforge does **not** contain the other two — it drives the `verdict` binary (on PATH) and the toolkit (via `VERDICT_DFIR_HOME`). `scripts/setup.sh` clones + builds all three.
+
 ## Status — MVP core
 
 Implemented and tested (this build):
