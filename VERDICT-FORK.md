@@ -5,6 +5,10 @@ rebranded for the [VERDICT](https://github.com/TimothyVang/verdict-dfir) DFIR
 toolkit. It tracks upstream and layers VERDICT branding on top of the opencode
 application and TUI.
 
+
+<p align="center"><img src=".verdict/tui-verdict.png" alt="VERDICT TUI" width="720"></p>
+<p align="center"><sub>The rebranded TUI — true window screenshot of the source build (VER lilac / DICT cream).</sub></p>
+
 ## Upstream
 
 - Forked from: `sst/opencode`
