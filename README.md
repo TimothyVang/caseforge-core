@@ -89,7 +89,7 @@ caseforge investigate fixtures/synthetic --privacy cloud-ok --evidence synthetic
 ```
 configs/    opencode.verdict profile + provider-capabilities / model-routes / gateway / ingest / ocr
 packages/   caseforge-sdk (controller + privacy + findings + custody), caseforge-cli
-crates/     caseforge-core (planned Rust ingest)
+crates/     caseforge-ingest (planned Rust ingest)
 docs/       PRD, ARCHITECTURE, SECURITY, BUILD_ORDER, MODEL_ROUTING, LLM_SUPPORT_2026, EXTERNAL_WORKBENCH_BRIDGES
 scripts/    bootstrap, doctor, start-llm-gateway, run-local-smoke, selftest
 .github/    fixtures-only CI (synthetic/public evidence only — never real)

@@ -16,4 +16,4 @@ export const ocr = (): number =>
   planned("ocr", "Phase 11", "OCR router is planned; see configs/ocr-profiles.yaml.")
 
 export const ingest = (): number =>
-  planned("ingest", "Phase 12", "Rust ingest core (crates/caseforge-core) is planned.")
+  planned("ingest", "Phase 12", "Rust ingest core (crates/caseforge-ingest) is planned.")
