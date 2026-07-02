@@ -1,4 +1,4 @@
-<p align="center"><b>caseforge-verdict-core</b></p>
+<p align="center"><b>caseforge-core</b></p>
 
 <p align="center"><b>Show Me the Evidence — a headless, local-first DFIR agentic core.</b></p>
 
@@ -17,7 +17,7 @@
 > `tool_call_id`, an `output_sha256`, and a verified manifest. **Real evidence
 > stays local by default.**
 
-`caseforge-verdict-core` is the headless DFIR engine that drives the
+`caseforge-core` is the headless DFIR engine that drives the
 [VERDICT](https://github.com/TimothyVang/verdict-dfir-community) forensic MCP
 tools with the [`verdict`](https://github.com/TimothyVang/verdict-opencode)
 agent runtime, on the model **you** choose — local (vLLM/Ollama) or cloud —

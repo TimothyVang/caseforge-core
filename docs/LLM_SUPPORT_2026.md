@@ -1,4 +1,4 @@
-# LLM Support (2026) — caseforge-verdict-core
+# LLM Support (2026) — caseforge-core
 
 > Universal routing across local/offline and online/API providers. The harness
 > is provider-agnostic; the privacy router decides what any given provider is

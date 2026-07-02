@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-caseforge-verdict-core is Apache-2.0. It builds on:
+caseforge-core is Apache-2.0. It builds on:
 
 - **VERDICT DFIR toolkit** — https://github.com/TimothyVang/verdict-dfir-community (Apache-2.0).
   Forensic MCP servers (findevil-mcp, findevil-agent-mcp) and the DFIR doctrine

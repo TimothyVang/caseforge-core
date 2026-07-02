@@ -1,4 +1,4 @@
-# Security & Custody Model — caseforge-verdict-core
+# Security & Custody Model — caseforge-core
 
 > The LLM is not the forensic source of truth. Show me the evidence: a finding
 > without tool-backed custody is not a finding.

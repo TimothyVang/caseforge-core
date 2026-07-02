@@ -1,11 +1,11 @@
-# External Workbench Bridges — caseforge-verdict-core
+# External Workbench Bridges — caseforge-core
 
 > caseforge is headless. It bridges to external examiner workbenches; it does
 > not depend on them, and it does not embed their GUI logic.
 
 ## 1. Posture: Headless Engine
 
-caseforge-verdict-core is a headless DFIR engine. It runs the same on a Linux
+caseforge-core is a headless DFIR engine. It runs the same on a Linux
 laptop, a DGX/Spark box, a SIFT workstation, a server, or a CI fixture runner —
 with **no examiner GUI dependency**. All capability is driven through the CLI,
 the SDK, VERDICT MCP tools, and the agent loop.

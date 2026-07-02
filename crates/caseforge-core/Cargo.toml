@@ -5,7 +5,7 @@ name = "caseforge-core"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
-description = "Planned Rust ingest core for caseforge-verdict-core (Phase 12)."
+description = "Planned Rust ingest core for caseforge-core (Phase 12)."
 
 [[bin]]
 name = "caseforge-core"

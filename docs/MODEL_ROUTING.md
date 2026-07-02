@@ -1,4 +1,4 @@
-# Model Routing — caseforge-verdict-core
+# Model Routing — caseforge-core
 
 > Three modes decide where the model runs and what evidence it may see. The
 > router is fail-closed: absent an explicit permissive mode, evidence stays on

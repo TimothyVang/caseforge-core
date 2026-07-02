@@ -1,6 +1,6 @@
 # ocr-profiles.yaml
 #
-# Purpose: OCR profiles for caseforge-verdict-core. Each profile names an OCR
+# Purpose: OCR profiles for caseforge-core. Each profile names an OCR
 #          engine, its languages, and a privacy_location so the privacy router
 #          can decide whether a given image/document may be sent to it. Cloud
 #          vision is gated to non-sensitive material only.

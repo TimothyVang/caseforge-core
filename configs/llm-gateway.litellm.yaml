@@ -1,6 +1,6 @@
 # llm-gateway.litellm.yaml
 #
-# Purpose: TEMPLATE LiteLLM proxy configuration for caseforge-verdict-core's
+# Purpose: TEMPLATE LiteLLM proxy configuration for caseforge-core's
 #          planned universal LLM gateway. When wired, the proxy presents ONE
 #          OpenAI-compatible surface and fans out to local + cloud backends,
 #          so the engine can talk to a single base_url and let the gateway

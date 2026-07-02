@@ -1,6 +1,6 @@
 # provider-capabilities.yaml
 #
-# Purpose: Registry of LLM providers for caseforge-verdict-core, the headless
+# Purpose: Registry of LLM providers for caseforge-core, the headless
 #          DFIR agentic engine. Each entry records where the provider runs
 #          (local vs cloud), whether it needs an API key/env var, whether it
 #          supports tool/function calling, whether it streams, and free-form

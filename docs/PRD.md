@@ -1,4 +1,4 @@
-# Product Requirements — caseforge-verdict-core
+# Product Requirements — caseforge-core
 
 > Headless, agent-friendly DFIR engine built around VERDICT tools, the OpenCode
 > SDK, and universal LLM routing. Show me the evidence: every reportable
@@ -12,7 +12,7 @@ and draft reports. But an LLM left unchecked hallucinates findings, leaks
 sensitive evidence to third-party APIs, and produces conclusions with no chain
 of custody. None of that survives review.
 
-`caseforge-verdict-core` is the agentic harness that makes LLM-driven DFIR
+`caseforge-core` is the agentic harness that makes LLM-driven DFIR
 defensible. It wraps VERDICT's read-only forensic tools, enforces a
 privacy-mode router so real evidence stays local, and rejects any finding that
 is not backed by verifiable tool evidence. It is headless by design — no
@@ -40,7 +40,7 @@ workstation, a server, or a CI fixture runner.
 
 ## 4. Non-Goals (Excludes)
 
-The following are explicitly out of scope. caseforge-verdict-core does **not**
+The following are explicitly out of scope. caseforge-core does **not**
 build, embed, or depend on:
 
 - Autopsy, Autopsy MCP/modules, or case-DB adapters.

@@ -1,4 +1,4 @@
-# Build Order — caseforge-verdict-core
+# Build Order — caseforge-core
 
 > Phases 0–14. Status reflects the current build increment. The MVP core is
 > Phases 0–2 (partial), 6, 7, 8, 9, 10. Everything else is planned/stubbed.

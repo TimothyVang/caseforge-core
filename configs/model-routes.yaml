@@ -1,6 +1,6 @@
 # model-routes.yaml
 #
-# Purpose: Named model routes for caseforge-verdict-core. A route binds a stable
+# Purpose: Named model routes for caseforge-core. A route binds a stable
 #          route id to a concrete {provider, base_url, model, tool_calling,
 #          privacy_locations}. Agent code selects a route by id and never hard-
 #          codes a provider or URL.

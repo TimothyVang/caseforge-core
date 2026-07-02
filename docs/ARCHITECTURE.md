@@ -1,4 +1,4 @@
-# Architecture — caseforge-verdict-core
+# Architecture — caseforge-core
 
 > Headless DFIR engine. Evidence flows in, verified structured findings flow
 > out. The LLM orchestrates; VERDICT tools are the source of truth.
@@ -72,7 +72,7 @@ The canonical output of a valid run (`caseforge verify <run-dir>` checks these):
 ## 4. Monorepo Layout
 
 ```
-caseforge-verdict-core/
+caseforge-core/
 ├── packages/
 │   ├── caseforge-sdk/      # @verdict/caseforge-sdk — controller, privacy router,
 │   │                       #   finding schema, custody + artifact validators
