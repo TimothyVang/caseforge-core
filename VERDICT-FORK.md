@@ -29,13 +29,17 @@ Cosmetic / branding only — no behavioral changes to the agent engine:
 | Terminal title | `packages/tui/src/app.tsx` | window/terminal title `OpenCode` and `OC \| …` → `VERDICT` / `VERDICT \| …` |
 | App-name strings | `packages/tui/src/{routes/session/permission,attention,feature-plugins/home/tips-view}`, `packages/opencode/src/{cli/cmd/run/*,cli/cmd/uninstall,acp/service,mcp/oauth-provider,plugin/*}` | user-facing self-references "OpenCode" → "VERDICT" (permission dialogs, splash, uninstall, ACP labels, MCP OAuth client name, exit/update messages) |
 | Auto-update off | `packages/opencode/src/cli/upgrade.ts` | update check hard-disabled — a fork must never pull upstream opencode releases (would overwrite the branded binary) |
+| Agent persona | `packages/opencode/src/session/prompt/*.txt` | system prompts "You are OpenCode …" → "You are VERDICT …" (a behavioral change: the agent now identifies as VERDICT) |
+| Remaining self-references | HTTP-API doc strings, `/init` template, ACP/MCP labels, TUI tips | standalone "OpenCode" → "VERDICT" (word-boundary sweep, `git log` for exact diff) |
 | Theme | `packages/tui` (via user theme) | pairs with the VERDICT opencode theme (`verdict-agent-harness/.opencode/themes/verdict.json`) |
 
-Intentionally **left intact** (not cosmetic app chrome): real upstream service
-names ("opencode Zen", "opencode Go"), the `opencode serve`/`opencode.json`
-commands & config keys, HTTP-API doc strings and code identifiers
-(`OpenCodeHttpApi`), and the agent **system prompts** ("You are OpenCode …") —
-renaming the agent persona is a behavioral change, not branding.
+Intentionally **left intact** because they are functional, not branding:
+code identifiers (`OpenCodeHttpApi`, `OpenCodeAssistantMessage`), the
+`opencode serve` / `opencode.json` commands & config keys, the `@opencode-ai/*`
+package names and `opencode.ai` URLs, real upstream service names ("opencode
+Zen", "opencode Go"), and the provider billing header
+(`X-BILLING-INVOKE-ORIGIN: OpenCode` in `provider/provider.ts`, which identifies
+the client to providers' billing APIs).
 
 <p align="center"><img src=".verdict/tui-verdict-binary.png" alt="Compiled VERDICT binary" width="720"></p>
 <p align="center"><sub>The compiled standalone <code>verdict</code> binary — VERDICT wordmark + titlebar, no auto-update dialog.</sub></p>
