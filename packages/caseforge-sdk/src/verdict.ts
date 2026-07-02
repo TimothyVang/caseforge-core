@@ -56,6 +56,108 @@ export interface FindingsCustodyReport {
   findings: FindingCustody[]
 }
 
+/** The three scoped verdict words to recover from the agent's messages. */
+const VERDICT_WORDS = ["SUSPICIOUS", "INDETERMINATE", "NO_EVIL"] as const
+
+export interface AssembledVerdict extends VerdictDoc {
+  findings: VerdictFinding[]
+  evidence_path?: string
+  case_completeness: { generated_by_caseforge: true; note: string }
+  generated_by: "caseforge"
+  generated_at: string
+}
+
+/**
+ * Best-effort assemble a verdict.json from a sealed run's audit.jsonl.
+ *
+ * The toolkit's authoritative verdict.json is produced only by its own
+ * auto-runner. For agent-driven runs, caseforge reconstructs a DERIVED report
+ * from the hash-chained audit log: case metadata from `case_open`, findings
+ * merged by `finding_id` across the chain (keeping only CITED findings so the
+ * report never fails its own custody check), and the scoped verdict word from
+ * the agent's final messages. Clearly marked as caseforge-derived, not
+ * authoritative.
+ */
+export async function assembleVerdictFromAudit(runDir: string): Promise<AssembledVerdict | undefined> {
+  let text: string
+  try {
+    text = await readFile(join(runDir, "audit.jsonl"), "utf8")
+  } catch {
+    return undefined
+  }
+  const entries = text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((l) => {
+      try {
+        return JSON.parse(l) as { kind?: string; payload?: Record<string, unknown> }
+      } catch {
+        return undefined
+      }
+    })
+    .filter((e): e is { kind?: string; payload?: Record<string, unknown> } => Boolean(e))
+
+  // Case metadata from case_open.
+  let case_id: string | undefined
+  let evidence_path: string | undefined
+  for (const e of entries) {
+    if (e.payload?.tool_name !== "case_open") continue
+    const out = e.payload?.output as Record<string, unknown> | undefined
+    const args = e.payload?.arguments as Record<string, unknown> | undefined
+    case_id = (out?.id as string) ?? (out?.case_id as string) ?? case_id
+    evidence_path = (out?.evidence_path as string) ?? (args?.image_path as string) ?? evidence_path
+  }
+
+  // Merge findings by finding_id across the whole chain (partial + rich copies).
+  const merged = new Map<string, VerdictFinding>()
+  const walk = (o: unknown): void => {
+    if (!o || typeof o !== "object") return
+    if (Array.isArray(o)) {
+      o.forEach(walk)
+      return
+    }
+    const r = o as Record<string, unknown>
+    if (typeof r.finding_id === "string") {
+      const k = r.finding_id
+      const p = merged.get(k) ?? { finding_id: k }
+      merged.set(k, {
+        finding_id: k,
+        tool_call_id: p.tool_call_id ?? (r.tool_call_id as string) ?? undefined,
+        confidence: p.confidence ?? (r.confidence as string) ?? undefined,
+        description: p.description ?? (r.description as string) ?? undefined,
+        replay_matched: p.replay_matched ?? (r.replay_matched as boolean) ?? undefined,
+        replay_record_sha256:
+          p.replay_record_sha256 ?? (r.replay_record_sha256 as string) ?? (r.output_sha256 as string) ?? undefined,
+      })
+    }
+    for (const v of Object.values(r)) walk(v)
+  }
+  for (const e of entries) walk(e.payload)
+  const findings = [...merged.values()].filter((f) => typeof f.tool_call_id === "string" && f.tool_call_id.trim() !== "")
+
+  // Scoped verdict word — last occurrence in the agent's messages.
+  const msgs = entries.filter((e) => e.kind === "agent_message").map((e) => JSON.stringify(e.payload))
+  let verdict: string | undefined
+  for (let i = msgs.length - 1; i >= 0 && !verdict; i--) {
+    verdict = VERDICT_WORDS.find((w) => msgs[i]!.includes(w))
+  }
+  if (!verdict) verdict = findings.length ? "INDETERMINATE" : "NO_EVIL"
+
+  return {
+    case_id,
+    evidence_path,
+    verdict,
+    findings,
+    case_completeness: {
+      generated_by_caseforge: true,
+      note: "Derived from audit.jsonl by caseforge; not the toolkit's authoritative verdict.json.",
+    },
+    generated_by: "caseforge",
+    generated_at: new Date().toISOString(),
+  }
+}
+
 /** A finding is anchored (must be tool-cited) unless it is a HYPOTHESIS. */
 function isAnchored(f: VerdictFinding): boolean {
   const c = (f.confidence ?? "").toUpperCase()

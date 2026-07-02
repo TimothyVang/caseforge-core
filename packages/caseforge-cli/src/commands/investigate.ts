@@ -9,7 +9,7 @@
 import { spawn, execFileSync } from "node:child_process"
 import { existsSync, readdirSync, statSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { assertModelAllowed, DEFAULT_PRIVACY_MODE, PrivacyViolationError } from "@verdict/caseforge-sdk"
+import { assertModelAllowed, DEFAULT_PRIVACY_MODE, PrivacyViolationError, assembleVerdictFromAudit } from "@verdict/caseforge-sdk"
 import type { EvidenceClass, PrivacyMode } from "@verdict/caseforge-sdk"
 import { loadRoutes, resolveCandidate, opencodeProfileDir, routeLocation } from "../config.js"
 import { verify } from "./verify.js"
@@ -45,6 +45,23 @@ function finalizeManifestVerify(runDir: string): void {
       console.error(`[caseforge] manifest verify step could not run: ${(e as Error).message}`)
     }
   }
+}
+
+/**
+ * Assemble the structured verdict.json report from the sealed audit chain, so
+ * the run comes out as a "full report" (findings + scoped verdict), not just
+ * custody-sealed. caseforge-derived and clearly marked as such — the toolkit's
+ * authoritative verdict.json comes only from its own auto-runner.
+ */
+async function finalizeVerdictJson(runDir: string): Promise<void> {
+  const out = join(runDir, "verdict.json")
+  if (existsSync(out)) return
+  const doc = await assembleVerdictFromAudit(runDir)
+  if (!doc) return
+  writeFileSync(out, JSON.stringify(doc, null, 2) + "\n")
+  console.error(
+    `[caseforge] assembled verdict.json from the audit chain — verdict ${doc.verdict}, ${doc.findings.length} cited finding(s)`,
+  )
 }
 
 /** Newest VERDICT case dir under FINDEVIL_HOME/cases, if any. */
@@ -185,8 +202,10 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
     console.error("[caseforge] run `caseforge verify <run-dir>` on the produced case directory.")
     return runCode
   }
-  // Independently confirm custody (writes manifest_verify.json), then validate.
+  // Independently confirm custody (writes manifest_verify.json), assemble the
+  // structured verdict.json report from the audit chain, then validate.
   finalizeManifestVerify(runDir)
+  await finalizeVerdictJson(runDir)
   console.error(`\n[caseforge] verifying produced run: ${runDir}`)
   const verifyCode = await verify([runDir])
   // Non-zero if the agent run failed OR the produced run does not verify.
