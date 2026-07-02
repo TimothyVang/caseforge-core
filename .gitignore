@@ -1,0 +1,8 @@
+node_modules/
+# our TS build output (anchored so the vendored SDK's dist/ is NOT ignored)
+/packages/caseforge-sdk/dist/
+/packages/caseforge-cli/dist/
+target/
+*.log
+.env
+.DS_Store

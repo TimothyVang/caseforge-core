@@ -1,0 +1,16 @@
+{
+  "name": "caseforge-verdict-core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Headless DFIR agentic core: OpenCode SDK controller + VERDICT MCP tools + universal LLM routing + privacy-mode router + structured findings + custody validation.",
+  "license": "Apache-2.0",
+  "author": "Timothy Vang",
+  "type": "module",
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "doctor": "node packages/caseforge-cli/dist/src/cli.js doctor"
+  },
+  "engines": { "node": ">=20" }
+}

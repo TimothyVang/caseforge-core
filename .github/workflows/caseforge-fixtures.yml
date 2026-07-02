@@ -1,0 +1,52 @@
+name: caseforge-fixtures
+
+# Fixture-only CI. It runs the build, the model-independent self-test, and the
+# CLI's privacy/verify guarantees against SYNTHETIC fixtures only.
+#
+# HARD RULE: no real/seized evidence and no evidence egress ever runs here.
+# Privacy stays local-only; no model API keys are provided to this workflow.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-verify:
+    runs-on: ubuntu-latest
+    env:
+      CASEFORGE_PRIVACY: local-only
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install
+        run: npm install
+
+      - name: Build
+        run: npm run build
+
+      - name: Self-test (privacy router, finding schema, artifact + custody validation)
+        run: node scripts/selftest.mjs
+
+      - name: Privacy guarantee — cloud routes must be denied under local-only
+        run: |
+          out="$(node packages/caseforge-cli/dist/src/cli.js models --privacy local-only)"
+          echo "$out"
+          echo "$out" | grep -q '\[deny\]  openai' || { echo "::error::cloud route not denied under local-only"; exit 1; }
+          echo "$out" | grep -q '\[allow\] local' || { echo "::error::local route not allowed under local-only"; exit 1; }
+
+      - name: Verify — a synthetic complete run validates; an empty run is incomplete
+        run: |
+          run="$RUNNER_TEMP/synthetic-run"
+          mkdir -p "$run"
+          for a in verdict.json coverage_manifest.json run.manifest.json; do echo '{}' > "$run/$a"; done
+          echo '{"ok":true}' > "$run/manifest_verify.json"; : > "$run/audit.jsonl"
+          node packages/caseforge-cli/dist/src/cli.js verify "$run"
+          node packages/caseforge-cli/dist/src/cli.js verify "$RUNNER_TEMP" && { echo "::error::empty run should be incomplete"; exit 1; } || echo "incomplete run correctly non-zero"

@@ -1,0 +1,86 @@
+# model-routes.yaml
+#
+# Purpose: Named model routes for caseforge-verdict-core. A route binds a stable
+#          route id to a concrete {provider, base_url, model, tool_calling,
+#          privacy_locations}. Agent code selects a route by id and never hard-
+#          codes a provider or URL.
+#
+# Status:  ACTIVE (Phase 1). Routes reference providers defined in
+#          provider-capabilities.yaml.
+#
+# --- PRIVACY ROUTER CONTRACT --------------------------------------------------
+# `privacy_locations` is the ONLY field the privacy router checks when deciding
+# whether a given piece of evidence-derived context may be sent over a route:
+#
+#   * ["local"]  -> data stays on the host; safe for sensitive/seized evidence.
+#   * ["cloud"]  -> data egresses to a third party; router BLOCKS it unless the
+#                   case/material is explicitly marked non-sensitive.
+#
+# A route may list multiple locations only when the endpoint can be either
+# (e.g. a litellm gateway pointed at mixed backends); the router then treats the
+# route as cloud-tainted and requires explicit non-sensitive marking.
+# ------------------------------------------------------------------------------
+#
+# Security: API keys are placeholders of the form {env:VAR_NAME}, resolved from
+#           the environment at load time. NEVER commit a real key.
+#
+# schema_version: 1
+
+routes:
+
+  # ---- LOCAL routes (privacy_locations: [local]) -----------------------------
+
+  local-vllm:
+    provider: local-vllm
+    base_url: http://localhost:8000/v1
+    model: qwen2.5-coder:32b        # example; any model served by the local vLLM instance
+    api_key: null                    # local vLLM is unauthenticated by default
+    tool_calling: true
+    privacy_locations: [local]
+
+  local-ollama:
+    provider: local-ollama
+    base_url: http://localhost:11434/v1
+    model: llama3.1:8b               # example; NOTE: small local models are unreliable at tools
+    api_key: null
+    tool_calling: unknown
+    privacy_locations: [local]
+
+  # ---- CLOUD routes (privacy_locations: [cloud]) -----------------------------
+
+  openrouter:
+    provider: openrouter
+    base_url: https://openrouter.ai/api/v1
+    model: openai/gpt-5.5            # example route target through the aggregator
+    api_key: "{env:OPENROUTER_API_KEY}"
+    tool_calling: true
+    privacy_locations: [cloud]
+
+  zai-direct:
+    provider: zai
+    base_url: https://api.z.ai/api/paas/v4
+    model: glm-4.6                   # direct Z.AI GLM family
+    api_key: "{env:ZAI_API_KEY}"
+    tool_calling: true
+    privacy_locations: [cloud]
+
+  openai:
+    provider: openai
+    base_url: https://api.openai.com/v1
+    model: gpt-5.5                    # reliably drives tools in the bench harness
+    api_key: "{env:OPENAI_API_KEY}"
+    tool_calling: true
+    privacy_locations: [cloud]
+
+# ------------------------------------------------------------------------------
+# Optional default selection policy (advisory; the engine/router enforces it).
+# ------------------------------------------------------------------------------
+routing_policy:
+  # For sensitive/seized evidence the router restricts selection to local-only.
+  sensitive_default: local-vllm
+  # For explicitly non-sensitive work, a capable cloud route may be chosen.
+  non_sensitive_default: openai
+  notes: >-
+    Selection is a suggestion only. The privacy router has final say and will
+    reject any route whose privacy_locations include "cloud" when the active
+    material is not marked non-sensitive.
