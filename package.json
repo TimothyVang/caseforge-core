@@ -8,8 +8,9 @@
   "type": "module",
   "workspaces": ["packages/*"],
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present",
+    "build": "npm run build -w @verdict/caseforge-sdk && npm run build -w @verdict/caseforge-cli",
+    "typecheck": "npm run build -w @verdict/caseforge-sdk && npm run typecheck -w @verdict/caseforge-cli",
+    "selftest": "node scripts/selftest.mjs",
     "doctor": "node packages/caseforge-cli/dist/src/cli.js doctor"
   },
   "engines": { "node": ">=20" }
