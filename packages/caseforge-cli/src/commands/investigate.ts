@@ -6,13 +6,46 @@
  * evidence class BEFORE any model is contacted. In local-only mode a cloud
  * route is refused outright — no evidence leaves the host.
  */
-import { spawn } from "node:child_process"
-import { existsSync, readdirSync, statSync } from "node:fs"
+import { spawn, execFileSync } from "node:child_process"
+import { existsSync, readdirSync, statSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { assertModelAllowed, DEFAULT_PRIVACY_MODE, PrivacyViolationError } from "@verdict/caseforge-sdk"
 import type { EvidenceClass, PrivacyMode } from "@verdict/caseforge-sdk"
 import { loadRoutes, resolveCandidate, opencodeProfileDir, routeLocation } from "../config.js"
 import { verify } from "./verify.js"
+
+/**
+ * Independently verify the sealed manifest and persist manifest_verify.json.
+ *
+ * The agent's manifest_verify runs AFTER manifest_finalize seals the audit chain,
+ * so its result is not written anywhere. caseforge re-verifies the signed
+ * run.manifest.json itself with the toolkit's zero-dependency offline verifier
+ * (`scripts/manifest-verify-offline.py`) — the "LLM is not the source of truth"
+ * step for custody — and writes the result to manifest_verify.json.
+ */
+function finalizeManifestVerify(runDir: string): void {
+  const manifest = join(runDir, "run.manifest.json")
+  const out = join(runDir, "manifest_verify.json")
+  if (!existsSync(manifest) || existsSync(out)) return
+  const home = process.env.VERDICT_DFIR_HOME
+  const verifier = home ? join(home, "scripts", "manifest-verify-offline.py") : ""
+  if (!verifier || !existsSync(verifier)) return
+  try {
+    const json = execFileSync("python3", [verifier, manifest, "--json"], { encoding: "utf8" })
+    writeFileSync(out, json)
+    console.error("[caseforge] independently re-verified the signed manifest -> manifest_verify.json")
+  } catch (e) {
+    // The verifier exits non-zero when the manifest does NOT verify, but still
+    // prints its JSON verdict to stdout — capture it so custody-invalid is recorded.
+    const stdout = (e as { stdout?: string }).stdout
+    if (stdout) {
+      writeFileSync(out, stdout)
+      console.error("[caseforge] manifest FAILED independent verification -> manifest_verify.json")
+    } else {
+      console.error(`[caseforge] manifest verify step could not run: ${(e as Error).message}`)
+    }
+  }
+}
 
 /** Newest VERDICT case dir under FINDEVIL_HOME/cases, if any. */
 function findNewestCaseDir(dfirHome: string | undefined, findevilHome: string | undefined): string | undefined {
@@ -152,6 +185,8 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
     console.error("[caseforge] run `caseforge verify <run-dir>` on the produced case directory.")
     return runCode
   }
+  // Independently confirm custody (writes manifest_verify.json), then validate.
+  finalizeManifestVerify(runDir)
   console.error(`\n[caseforge] verifying produced run: ${runDir}`)
   const verifyCode = await verify([runDir])
   // Non-zero if the agent run failed OR the produced run does not verify.
