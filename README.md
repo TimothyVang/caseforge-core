@@ -74,6 +74,17 @@ ready for that the moment the hardware is. See [`docs/MODEL_ROUTING.md`](docs/MO
 
 ## Quickstart
 
+Fresh box (clones + builds `verdict` binary, forensic MCP tools, and this repo):
+
+```bash
+bash scripts/setup.sh        # git, node>=20, cargo, uv, bun required
+```
+
+Offline on a **DGX Spark** (local model on the Spark's GPU, no cloud) — see
+[docs/DGX-SPARK.md](docs/DGX-SPARK.md).
+
+Manual:
+
 ```bash
 npm install && npm run build
 export VERDICT_DFIR_HOME=~/verdict-dfir-community      # toolkit with the MCP servers

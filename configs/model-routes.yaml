@@ -46,6 +46,20 @@ routes:
     tool_calling: unknown
     privacy_locations: [local]
 
+  # Self-hosted Ollama on a remote box on YOUR network (e.g. a DGX Spark GB10).
+  # Still privacy_locations: [local] — evidence stays on your own hardware, no
+  # cloud egress. Override the endpoint/model at runtime without editing this file:
+  #   export VERDICT_LLM_BASEURL=http://<spark-ip>:11434/v1
+  #   export VERDICT_LLM_MODEL=qwen3.6:35b-a3b        # a strong 35B-A3B MoE tool-caller
+  # then:  caseforge investigate <case> --privacy local-only --route spark-ollama
+  spark-ollama:
+    provider: local-ollama
+    base_url: http://SPARK-HOST:11434/v1   # set to your Spark; VERDICT_LLM_BASEURL overrides
+    model: qwen3.6:35b-a3b                  # VERDICT_LLM_MODEL overrides
+    api_key: null
+    tool_calling: true
+    privacy_locations: [local]
+
   # ---- CLOUD routes (privacy_locations: [cloud]) -----------------------------
 
   openrouter:

@@ -103,9 +103,13 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
   let modelRef: string
   if (routeLocation(route) === "local") {
     modelRef = "verdict-local/local"
-    env.VERDICT_LLM_BASEURL = route.base_url ?? "http://localhost:11434/v1"
-    env.VERDICT_LLM_APIKEY = env.VERDICT_LLM_APIKEY ?? "local"
-    env.VERDICT_LLM_MODEL = route.model
+    // A remote self-hosted endpoint (e.g. Ollama on a DGX Spark over the LAN) is
+    // still "local" for privacy — evidence stays on your own hardware. Let an
+    // explicit VERDICT_LLM_BASEURL / VERDICT_LLM_MODEL env override the route so
+    // one route can target localhost or a Spark by just exporting the endpoint.
+    env.VERDICT_LLM_BASEURL = process.env.VERDICT_LLM_BASEURL ?? route.base_url ?? "http://localhost:11434/v1"
+    env.VERDICT_LLM_APIKEY = process.env.VERDICT_LLM_APIKEY ?? "local"
+    env.VERDICT_LLM_MODEL = process.env.VERDICT_LLM_MODEL ?? route.model
   } else {
     // cloud provider handled by opencode's built-in catalog + auth
     modelRef = `${route.provider}/${route.model}`
