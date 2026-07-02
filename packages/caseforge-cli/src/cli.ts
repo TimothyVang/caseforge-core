@@ -69,6 +69,8 @@ async function main(): Promise<number> {
         evidence,
         route: typeof flags.route === "string" ? flags.route : undefined,
         command: typeof flags.command === "string" ? flags.command : undefined,
+        runDir: typeof flags["run-dir"] === "string" ? (flags["run-dir"] as string) : undefined,
+        noVerify: flags["no-verify"] === true,
       })
     case "verify":
       return verify(rest)

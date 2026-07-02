@@ -41,3 +41,6 @@ export {
   verifyCitations,
 } from "./artifacts.js"
 export type { RunStatus, RunValidation, AuditEntry, CitationCheck } from "./artifacts.js"
+
+export { readVerdict, checkFindingsCustody } from "./verdict.js"
+export type { VerdictDoc, VerdictFinding, FindingCustody, FindingsCustodyReport } from "./verdict.js"

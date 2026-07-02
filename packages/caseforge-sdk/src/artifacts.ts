@@ -10,7 +10,12 @@ import { readFile } from "node:fs/promises"
 import { existsSync } from "node:fs"
 import { join } from "node:path"
 
-/** Artifacts every VERDICT run must emit. */
+/**
+ * Artifacts every VERDICT run must emit. `coverage_manifest.json` is special:
+ * the toolkit manifests coverage INSIDE verdict.json (attack_coverage /
+ * case_completeness) rather than as a separate file, so the coverage
+ * requirement is satisfied either way (see `coverageSatisfied`).
+ */
 export const REQUIRED_ARTIFACTS = [
   "verdict.json",
   "coverage_manifest.json",
@@ -18,6 +23,9 @@ export const REQUIRED_ARTIFACTS = [
   "manifest_verify.json",
   "audit.jsonl",
 ] as const
+
+/** Hard files that must exist on disk (coverage handled separately). */
+const HARD_REQUIRED = ["verdict.json", "run.manifest.json", "manifest_verify.json", "audit.jsonl"] as const
 
 export type RunStatus = "complete" | "incomplete" | "custody-invalid"
 
@@ -45,32 +53,38 @@ async function readJson(path: string): Promise<unknown | undefined> {
 function manifestVerified(v: unknown): boolean {
   if (!v || typeof v !== "object") return false
   const o = v as Record<string, unknown>
-  if (o.ok === true || o.verified === true || o.valid === true) return true
+  // `overall` is VERDICT's own top-level pass flag in manifest_verify.json.
+  if (o.overall === true || o.ok === true || o.verified === true || o.valid === true) return true
   if (typeof o.status === "string" && ["ok", "valid", "verified", "pass"].includes(o.status.toLowerCase())) return true
   return false
+}
+
+/** Coverage is satisfied by a coverage_manifest.json OR embedded in verdict.json. */
+async function coverageSatisfied(runDir: string): Promise<boolean> {
+  if (existsSync(join(runDir, "coverage_manifest.json"))) return true
+  const verdict = (await readJson(join(runDir, "verdict.json"))) as Record<string, unknown> | undefined
+  return Boolean(verdict && (verdict.attack_coverage || verdict.case_completeness))
 }
 
 /** Validate the artifacts of a run directory. */
 export async function validateRun(runDir: string): Promise<RunValidation> {
   const present: string[] = []
   const missing: string[] = []
-  for (const name of REQUIRED_ARTIFACTS) {
+  for (const name of HARD_REQUIRED) {
     if (existsSync(join(runDir, name))) present.push(name)
     else missing.push(name)
   }
+  const hasCoverage = await coverageSatisfied(runDir)
+  if (existsSync(join(runDir, "coverage_manifest.json"))) present.push("coverage_manifest.json")
+  else if (!hasCoverage) missing.push("coverage_manifest.json (or coverage embedded in verdict.json)")
+
+  // Always evaluate manifest custody when the file is present, so reporting is
+  // accurate even for an otherwise-incomplete run.
+  const custodyValid = manifestVerified(await readJson(join(runDir, "manifest_verify.json")))
 
   if (missing.length > 0) {
-    return {
-      status: "incomplete",
-      present,
-      missing,
-      custodyValid: false,
-      detail: `run incomplete — missing ${missing.join(", ")}`,
-    }
+    return { status: "incomplete", present, missing, custodyValid, detail: `run incomplete — missing ${missing.join(", ")}` }
   }
-
-  const verify = await readJson(join(runDir, "manifest_verify.json"))
-  const custodyValid = manifestVerified(verify)
   if (!custodyValid) {
     return {
       status: "custody-invalid",
@@ -80,7 +94,6 @@ export async function validateRun(runDir: string): Promise<RunValidation> {
       detail: "custody invalid — manifest_verify.json did not confirm verification",
     }
   }
-
   return { status: "complete", present, missing, custodyValid: true, detail: "run complete and custody verified" }
 }
 

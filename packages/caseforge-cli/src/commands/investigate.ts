@@ -7,17 +7,39 @@
  * route is refused outright — no evidence leaves the host.
  */
 import { spawn } from "node:child_process"
-import { existsSync } from "node:fs"
+import { existsSync, readdirSync, statSync } from "node:fs"
 import { join } from "node:path"
 import { assertModelAllowed, DEFAULT_PRIVACY_MODE, PrivacyViolationError } from "@verdict/caseforge-sdk"
 import type { EvidenceClass, PrivacyMode } from "@verdict/caseforge-sdk"
 import { loadRoutes, resolveCandidate, opencodeProfileDir, routeLocation } from "../config.js"
+import { verify } from "./verify.js"
+
+/** Newest VERDICT case dir under FINDEVIL_HOME/cases, if any. */
+function findNewestCaseDir(dfirHome: string | undefined, findevilHome: string | undefined): string | undefined {
+  const home = findevilHome ?? (dfirHome ? join(dfirHome, ".project-local", "findevil") : undefined)
+  if (!home) return undefined
+  const cases = join(home, "cases")
+  if (!existsSync(cases)) return undefined
+  let newest: { dir: string; mtime: number } | undefined
+  for (const name of readdirSync(cases)) {
+    const dir = join(cases, name)
+    try {
+      const st = statSync(dir)
+      if (st.isDirectory() && (!newest || st.mtimeMs > newest.mtime)) newest = { dir, mtime: st.mtimeMs }
+    } catch {
+      /* skip */
+    }
+  }
+  return newest?.dir
+}
 
 export interface InvestigateOpts {
   privacy?: PrivacyMode
   evidence?: EvidenceClass
   route?: string
   command?: string // opencode slash command to drive (default: triage)
+  runDir?: string // explicit run/case dir to verify afterwards
+  noVerify?: boolean
 }
 
 /** Pick the requested route, or the first route allowed under this context. */
@@ -96,7 +118,7 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
   console.error(`[caseforge] evidence=${evidencePath}`)
 
   const bin = process.env.VERDICT_BIN ?? "verdict"
-  return await new Promise<number>((resolvePromise) => {
+  const runCode = await new Promise<number>((resolvePromise) => {
     const child = spawn(bin, ["run", "--agent", "verdict", "--model", modelRef, prompt], {
       env,
       stdio: "inherit",
@@ -107,4 +129,18 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
     })
     child.on("exit", (code) => resolvePromise(code ?? 0))
   })
+
+  if (opts.noVerify) return runCode
+
+  // Close the loop: locate the produced run/case dir and validate it.
+  const runDir = opts.runDir ?? findNewestCaseDir(process.env.VERDICT_DFIR_HOME, process.env.FINDEVIL_HOME)
+  if (!runDir) {
+    console.error("[caseforge] investigation finished; no run/case dir found to verify.")
+    console.error("[caseforge] run `caseforge verify <run-dir>` on the produced case directory.")
+    return runCode
+  }
+  console.error(`\n[caseforge] verifying produced run: ${runDir}`)
+  const verifyCode = await verify([runDir])
+  // Non-zero if the agent run failed OR the produced run does not verify.
+  return runCode !== 0 ? runCode : verifyCode
 }
