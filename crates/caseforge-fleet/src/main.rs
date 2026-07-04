@@ -3,6 +3,7 @@
 
 mod fleet;
 mod launch;
+mod session;
 mod status;
 mod ui;
 
