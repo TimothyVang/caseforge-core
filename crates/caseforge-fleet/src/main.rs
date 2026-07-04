@@ -6,13 +6,14 @@ mod launch;
 mod status;
 mod ui;
 
+
 use fleet::{FleetState, Key};
-use std::io::{self, IsTerminal};
-use std::path::PathBuf;
+use std::io::{self, IsTerminal, Stdout};
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ratatui::backend::CrosstermBackend;
-use ratatui::crossterm::event::{self, Event, KeyCode};
+use ratatui::crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use ratatui::crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
@@ -32,7 +33,7 @@ fn map_key(code: KeyCode) -> Key {
         KeyCode::Down | KeyCode::Char('j') => Key::Down,
         KeyCode::Enter => Key::Enter,
         KeyCode::Char('o') => Key::Open,
-        KeyCode::Char('q') | KeyCode::Esc => Key::Quit,
+        KeyCode::Char('q') | KeyCode::Esc => Key::Back,
         _ => Key::Other,
     }
 }
@@ -47,9 +48,22 @@ fn run_interactive(mut st: FleetState) -> io::Result<()> {
             term.draw(|f| ui::render(f, &st))?;
             if event::poll(Duration::from_millis(1000))? {
                 if let Event::Key(k) = event::read()? {
-                    st.on_key(map_key(k.code));
+                    let key = if k.modifiers.contains(KeyModifiers::CONTROL)
+                        && matches!(k.code, KeyCode::Char('c'))
+                    {
+                        Key::Quit
+                    } else {
+                        map_key(k.code)
+                    };
+                    st.on_key(key);
                     if st.quit {
                         break;
+                    }
+                    if st.pending_open {
+                        st.pending_open = false;
+                        if let Some(dir) = st.selected().map(|s| s.dir.clone()) {
+                            open_viewer(&mut term, &dir)?;
+                        }
                     }
                 }
             } else {
@@ -62,6 +76,18 @@ fn run_interactive(mut st: FleetState) -> io::Result<()> {
     disable_raw_mode()?;
     execute!(term.backend_mut(), LeaveAlternateScreen, cursor::Show)?;
     res
+}
+
+fn open_viewer(term: &mut Terminal<CrosstermBackend<Stdout>>, dir: &Path) -> io::Result<()> {
+    disable_raw_mode()?;
+    execute!(term.backend_mut(), LeaveAlternateScreen, cursor::Show)?;
+    let cmd = std::env::var("CASEFORGE_CMD").unwrap_or_else(|_| "caseforge".to_string());
+    let (prog, args) = launch::viewer_command(&cmd, dir);
+    let _ = std::process::Command::new(prog).args(args).status();
+    enable_raw_mode()?;
+    execute!(term.backend_mut(), EnterAlternateScreen, cursor::Hide)?;
+    term.clear()?;
+    Ok(())
 }
 
 fn print_static(st: &FleetState) {

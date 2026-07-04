@@ -1,7 +1,7 @@
 //! ratatui render for the fleet grid. Pure: (state) -> widgets. Snapshot-testable
 //! via TestBackend so the render itself is verified, not just the model.
 
-use crate::fleet::FleetState;
+use crate::fleet::{FleetState, View};
 use crate::status::{Custody, RunState, Status};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -73,7 +73,7 @@ fn row(i: usize, s: &Status, sel: bool) -> Line<'static> {
     ])
 }
 
-pub fn render(f: &mut Frame, st: &FleetState) {
+fn render_list(f: &mut Frame, st: &FleetState) {
     let dim = Style::default().add_modifier(Modifier::DIM);
     let mut lines: Vec<Line> = vec![
         Line::from(vec![
@@ -101,6 +101,60 @@ pub fn render(f: &mut Frame, st: &FleetState) {
         dim,
     )));
     f.render_widget(Paragraph::new(lines), f.area());
+}
+
+pub fn render(f: &mut Frame, st: &FleetState) {
+    match st.view {
+        View::List => render_list(f, st),
+        View::Detail => render_detail(f, st),
+    }
+}
+
+fn render_detail(f: &mut Frame, st: &FleetState) {
+    let dim = Style::default().add_modifier(Modifier::DIM);
+    let s = match st.selected() {
+        Some(s) => s,
+        None => return render_list(f, st),
+    };
+    let mut lines: Vec<Line> = vec![
+        Line::from(vec![
+            Span::styled(
+                "INVESTIGATION",
+                Style::default().fg(LILAC).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(format!("   {}", crate::ui::name_of(s)), dim),
+        ]),
+        Line::from(vec![
+            Span::styled("\u{25cf} ", Style::default().fg(dot_color(s.state))),
+            Span::styled(format!("{:<8}", state_label(s.state)), Style::default()),
+            Span::raw("  "),
+            custody_span(s.custody),
+            Span::styled(format!("  {} records", s.audit_records), dim),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
+            "AUDIT TAIL",
+            Style::default().fg(LILAC).add_modifier(Modifier::BOLD),
+        )),
+    ];
+    for rec in crate::status::audit_tail(&s.dir, 14) {
+        let seq = rec.seq.map(|n| n.to_string()).unwrap_or_else(|| "?".into());
+        lines.push(Line::from(vec![
+            Span::styled(format!("  #{:<3}", seq), dim),
+            Span::styled(format!("{:<22}", rec.kind), Style::default()),
+            Span::styled(rec.ts, dim),
+        ]));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "o open full viewer \u{b7} q back",
+        dim,
+    )));
+    f.render_widget(Paragraph::new(lines), f.area());
+}
+
+pub(crate) fn name_of(s: &Status) -> String {
+    dir_name(s)
 }
 
 #[cfg(test)]
@@ -149,6 +203,16 @@ mod tests {
     fn empty_fleet_degrades() {
         let st = FleetState::scan(&[], 0);
         assert!(buffer_text(&st).contains("no investigations found"));
+    }
+
+    #[test]
+    fn detail_view_renders_audit_tail() {
+        let mut st = FleetState::scan(&[fixtures().join("sample-run")], 4_000_000_000);
+        st.view = View::Detail;
+        let text = buffer_text(&st);
+        assert!(text.contains("INVESTIGATION"));
+        assert!(text.contains("AUDIT TAIL"));
+        assert!(text.contains("manifest_verify"));
     }
 
     #[test]

@@ -86,6 +86,28 @@ fn audit_age_secs(dir: &Path, now_secs: u64) -> Option<u64> {
     Some(now_secs.saturating_sub(mtime))
 }
 
+/// One audit record surfaced in the detail/attach view.
+#[derive(Debug, Clone)]
+pub struct AuditRec {
+    pub seq: Option<u64>,
+    pub kind: String,
+    pub ts: String,
+}
+
+/// The last `n` audit records for a run dir (chronological).
+pub fn audit_tail(dir: &Path, n: usize) -> Vec<AuditRec> {
+    let all = parse_audit(dir);
+    let start = all.len().saturating_sub(n);
+    all[start..]
+        .iter()
+        .map(|e| AuditRec {
+            seq: e.get("seq").and_then(|v| v.as_u64()),
+            kind: e.get("kind").and_then(|v| v.as_str()).unwrap_or("?").to_string(),
+            ts: e.get("ts").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        })
+        .collect()
+}
+
 /// Derive the full status of a run directory as of `now_secs` (unix seconds).
 pub fn derive_status(dir: &Path, now_secs: u64) -> Status {
     let audit = parse_audit(dir);
@@ -188,6 +210,13 @@ mod tests {
         let s = derive_status(&d, now());
         assert_eq!(s.state, RunState::Blocked);
         fs::remove_dir_all(&d).ok();
+    }
+
+    #[test]
+    fn audit_tail_reads_records() {
+        let t = audit_tail(&fixtures().join("sample-run"), 10);
+        assert_eq!(t.len(), 4);
+        assert_eq!(t.last().unwrap().kind, "manifest_verify");
     }
 
     #[test]

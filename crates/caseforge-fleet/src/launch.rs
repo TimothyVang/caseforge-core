@@ -23,6 +23,11 @@ pub fn investigate_args(evidence: &str, extra: &[String]) -> Vec<String> {
     v
 }
 
+/// Command to open the single-case viewer (the TS caseforge-tui) for a run dir.
+pub fn viewer_command(cmd: &str, dir: &std::path::Path) -> (String, Vec<String>) {
+    (cmd.to_string(), vec!["tui".to_string(), dir.display().to_string()])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -31,6 +36,13 @@ mod tests {
     fn spawn_runs_a_process() {
         let mut child = spawn("sh", &["-c".into(), "exit 0".into()]).expect("spawn");
         assert!(child.wait().unwrap().success());
+    }
+
+    #[test]
+    fn viewer_command_shape() {
+        let (c, a) = viewer_command("caseforge", std::path::Path::new("/runs/x"));
+        assert_eq!(c, "caseforge");
+        assert_eq!(a, vec!["tui".to_string(), "/runs/x".to_string()]);
     }
 
     #[test]
