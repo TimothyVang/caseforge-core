@@ -3,7 +3,7 @@
 
 use crate::session::Session;
 use crate::status::{derive_status, Status};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,11 +55,21 @@ impl Tab {
     }
 }
 
+/// A launched investigation whose case dir caseforge hasn't created yet. We
+/// snapshot the case-root before launch and adopt the first NEW dir that appears.
+pub struct PendingLaunch {
+    session: Session,
+    cases_root: PathBuf,
+    before: HashSet<PathBuf>,
+}
+
 pub struct FleetState {
     pub entries: Vec<Status>,
     /// Live launched investigations, keyed by their run dir. Present => attach
     /// shows live PTY output instead of the on-disk audit tail.
     pub sessions: HashMap<PathBuf, Session>,
+    fingerprints: HashMap<PathBuf, (u64, u64, bool)>,
+    pending: Vec<PendingLaunch>,
     pub cursor: usize,
     pub view: View,
     pub tab: Tab,
@@ -69,22 +79,47 @@ pub struct FleetState {
     pub quit: bool,
 }
 
+fn list_case_dirs(root: &Path) -> HashSet<PathBuf> {
+    std::fs::read_dir(root)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.path().is_dir())
+        .map(|e| e.path())
+        .collect()
+}
+
 impl FleetState {
     pub fn scan(dirs: &[PathBuf], now_secs: u64) -> Self {
         let entries = dirs.iter().map(|d| derive_status(d, now_secs)).collect();
-        FleetState { entries, sessions: HashMap::new(), cursor: 0, view: View::List, tab: Tab::All, pending_open: false, input: None, quit: false }
+        FleetState { entries, sessions: HashMap::new(), fingerprints: HashMap::new(), pending: Vec::new(), cursor: 0, view: View::List, tab: Tab::All, pending_open: false, input: None, quit: false }
     }
 
     /// Re-derive every investigation's status (called on the live-refresh tick).
     pub fn refresh(&mut self, now_secs: u64) {
+        self.resolve_pending();
         for e in self.entries.iter_mut() {
-            *e = derive_status(&e.dir, now_secs);
+            let fp = crate::status::fingerprint(&e.dir);
+            if self.fingerprints.get(&e.dir) == Some(&fp) {
+                // unchanged audit file: cheap re-stat, no full re-parse
+                let ns = crate::status::refresh_status(&e.dir, now_secs, e);
+                *e = ns;
+            } else {
+                self.fingerprints.insert(e.dir.clone(), fp);
+                *e = derive_status(&e.dir, now_secs);
+            }
         }
     }
 
     /// Handle a left-click at (col,row) in the left pane. Layout: row 1 = tab bar,
     /// rows >= 3 = investigation rows (pos = row-3). Clicks switch tab or select.
-    pub fn on_mouse(&mut self, col: u16, row: u16) {
+    pub fn on_mouse(&mut self, col: u16, row: u16, total_cols: u16) {
+        // grid + tab bar live in the left pane (~46% of the width); ignore clicks
+        // that land in the right detail pane so they don't mis-select a row.
+        let left = total_cols.saturating_mul(46) / 100;
+        if col >= left {
+            return;
+        }
         if row == 1 {
             let mut x: u16 = 0;
             for t in Tab::order() {
@@ -105,16 +140,6 @@ impl FleetState {
         }
     }
 
-    /// Launch an investigation as a live PTY session tracked under `run_dir`.
-    pub fn launch(&mut self, run_dir: PathBuf, program: &str, args: &[String]) -> anyhow::Result<()> {
-        let sess = Session::spawn(program, args)?;
-        if !self.entries.iter().any(|e| e.dir == run_dir) {
-            self.entries.push(derive_status(&run_dir, 0));
-        }
-        self.sessions.insert(run_dir, sess);
-        Ok(())
-    }
-
     pub fn begin_input(&mut self) { self.input = Some(String::new()); }
     pub fn cancel_input(&mut self) { self.input = None; }
     pub fn input_push(&mut self, c: char) {
@@ -128,13 +153,48 @@ impl FleetState {
         self.input.take().filter(|b| !b.trim().is_empty())
     }
 
-    /// Launch `evidence` under `workdir` via `cmd investigate ... --run-dir`.
-    pub fn launch_investigation(&mut self, evidence: &str, workdir: &Path, cmd: &str) -> anyhow::Result<()> {
-        let base = Path::new(evidence).file_name().and_then(|s| s.to_str()).unwrap_or("case");
-        let run_dir = workdir.join(format!("{base}-run"));
-        std::fs::create_dir_all(&run_dir).ok();
-        let args = crate::launch::investigate_launch_args(evidence, &run_dir, &[]);
-        self.launch(run_dir, cmd, &args)
+    /// Track a session for a known run dir (test/API primitive).
+    #[allow(dead_code)]
+    pub fn launch(&mut self, run_dir: PathBuf, program: &str, args: &[String]) -> anyhow::Result<()> {
+        let sess = crate::session::Session::spawn(program, args)?;
+        if !self.entries.iter().any(|e| e.dir == run_dir) {
+            self.entries.push(derive_status(&run_dir, 0));
+        }
+        self.sessions.insert(run_dir, sess);
+        Ok(())
+    }
+
+    /// Launch `evidence` via `cmd investigate <evidence>`, then discover the case
+    /// dir caseforge creates under `cases_root` (its --run-dir is a verify target,
+    /// not the write location, so we watch the case root instead).
+    pub fn launch_investigation(&mut self, evidence: &str, cases_root: &Path, cmd: &str) -> anyhow::Result<()> {
+        let before = list_case_dirs(cases_root);
+        let args = vec!["investigate".to_string(), evidence.to_string()];
+        let session = crate::session::Session::spawn(cmd, &args)?;
+        self.pending.push(PendingLaunch {
+            session,
+            cases_root: cases_root.to_path_buf(),
+            before,
+        });
+        Ok(())
+    }
+
+    /// Adopt case dirs that have appeared since a launch; drop launches whose
+    /// process exited without producing one.
+    fn resolve_pending(&mut self) {
+        let mut still = Vec::new();
+        for mut pl in std::mem::take(&mut self.pending) {
+            let now = list_case_dirs(&pl.cases_root);
+            if let Some(new_dir) = now.difference(&pl.before).next().cloned() {
+                if !self.entries.iter().any(|e| e.dir == new_dir) {
+                    self.entries.push(derive_status(&new_dir, 0));
+                }
+                self.sessions.insert(new_dir, pl.session);
+            } else if pl.session.is_running() {
+                still.push(pl); // still starting up
+            } // else: exited without a case dir -> give up (session dropped -> killed)
+        }
+        self.pending = still;
     }
 
     /// Live output tail for a launched investigation, if one is tracked.
@@ -215,6 +275,8 @@ mod tests {
                 .map(|_| derive_status(&PathBuf::from("/nope"), 0))
                 .collect(),
             sessions: std::collections::HashMap::new(),
+            fingerprints: std::collections::HashMap::new(),
+            pending: Vec::new(),
             cursor: 0,
             view: View::List,
             tab: Tab::All,
@@ -237,6 +299,23 @@ mod tests {
     }
 
     #[test]
+    fn launch_discovers_new_case_dir() {
+        let root = std::env::temp_dir().join(format!("cf-launch-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("old-case")).unwrap();
+        let mut st = FleetState::scan(&[], 0);
+        st.launch_investigation("/ev/x", &root, "true").unwrap();
+        // caseforge would create a new case dir; simulate it appearing:
+        std::fs::create_dir_all(root.join("new-case")).unwrap();
+        std::fs::write(root.join("new-case/run.manifest.json"), "{}").unwrap();
+        std::fs::write(root.join("new-case/audit.jsonl"), "").unwrap();
+        st.refresh(0);
+        assert!(st.entries.iter().any(|e| e.dir.ends_with("new-case")), "adopted new dir");
+        assert!(st.sessions.keys().any(|d| d.ends_with("new-case")), "session tracked");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
     fn tabs_filter_visible() {
         use crate::status::derive_status;
         let f = |n:&str| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/synthetic").join(n);
@@ -255,9 +334,11 @@ mod tests {
     fn mouse_selects_row_and_tab() {
         let f = |n:&str| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/synthetic").join(n);
         let mut st = FleetState::scan(&[f("sample-run"), f("custody-invalid-run")], 4_000_000_000);
-        st.on_mouse(3, 4); // row 4 -> pos 1
+        st.on_mouse(3, 4, 104); // left pane, row 4 -> pos 1
         assert_eq!(st.cursor, 1);
-        st.on_mouse(21, 1); // 'issues' tab region (>=19)
+        st.on_mouse(80, 3, 104); // right (detail) pane -> ignored
+        assert_eq!(st.cursor, 1);
+        st.on_mouse(21, 1, 104); // 'issues' tab region
         assert_eq!(st.tab, Tab::Issues);
         assert_eq!(st.cursor, 0);
     }

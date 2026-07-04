@@ -22,19 +22,6 @@ pub fn viewer_command(cmd: &str, dir: &std::path::Path) -> (String, Vec<String>)
     (cmd.to_string(), vec!["tui".to_string(), dir.display().to_string()])
 }
 
-/// Argv to launch an investigation writing to a known run dir (so the fleet
-/// can track its status + custody as it runs).
-pub fn investigate_launch_args(evidence: &str, run_dir: &std::path::Path, extra: &[String]) -> Vec<String> {
-    let mut v = vec![
-        "investigate".to_string(),
-        evidence.to_string(),
-        "--run-dir".to_string(),
-        run_dir.display().to_string(),
-    ];
-    v.extend_from_slice(extra);
-    v
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -43,12 +30,6 @@ mod tests {
     fn spawn_runs_a_process() {
         let mut child = spawn("sh", &["-c".into(), "exit 0".into()]).expect("spawn");
         assert!(child.wait().unwrap().success());
-    }
-
-    #[test]
-    fn launch_args_include_run_dir() {
-        let a = investigate_launch_args("/ev/x.E01", std::path::Path::new("/runs/x"), &[]);
-        assert_eq!(a, vec!["investigate", "/ev/x.E01", "--run-dir", "/runs/x"]);
     }
 
     #[test]

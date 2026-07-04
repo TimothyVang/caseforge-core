@@ -53,21 +53,22 @@ fn run_interactive(shared: socket::Shared) -> io::Result<()> {
     let res = (|| -> io::Result<()> {
         loop {
             {
-                let st = shared.lock().unwrap();
+                let st = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 term.draw(|f| ui::render(f, &st))?;
             }
             if event::poll(Duration::from_millis(1000))? {
                 let ev = event::read()?;
                 if let Event::Mouse(m) = ev {
                     if matches!(m.kind, MouseEventKind::Down(MouseButton::Left)) {
-                        shared.lock().unwrap().on_mouse(m.column, m.row);
+                        let cols = ratatui::crossterm::terminal::size().map(|(c, _)| c).unwrap_or(80);
+                        shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner).on_mouse(m.column, m.row, cols);
                     }
                 }
                 if let Event::Key(k) = ev {
                     let mut open_dir: Option<PathBuf> = None;
                     let quit;
                     {
-                        let mut st = shared.lock().unwrap();
+                        let mut st = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                         if st.input.is_some() {
                             match k.code {
                                 KeyCode::Char(c) => st.input_push(c),
@@ -75,12 +76,12 @@ fn run_interactive(shared: socket::Shared) -> io::Result<()> {
                                 KeyCode::Esc => st.cancel_input(),
                                 KeyCode::Enter => {
                                     if let Some(ev) = st.take_input() {
-                                        let workdir = std::env::var("FLEET_WORKDIR")
-                                            .map(PathBuf::from)
+                                        let cases_root = std::env::var("FINDEVIL_HOME")
+                                            .map(|h| PathBuf::from(h).join("cases"))
                                             .unwrap_or_else(|_| std::env::temp_dir().join("caseforge-fleet"));
                                         let cmd = std::env::var("CASEFORGE_CMD")
                                             .unwrap_or_else(|_| "caseforge".to_string());
-                                        let _ = st.launch_investigation(&ev, &workdir, &cmd);
+                                        let _ = st.launch_investigation(&ev, &cases_root, &cmd);
                                     }
                                 }
                                 _ => {}
@@ -108,7 +109,7 @@ fn run_interactive(shared: socket::Shared) -> io::Result<()> {
                     }
                 }
             } else {
-                let mut st = shared.lock().unwrap();
+                let mut st = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 st.refresh(now_secs());
             }
         }
@@ -169,11 +170,15 @@ fn main() -> io::Result<()> {
         socket::serve(sp, std::sync::Arc::clone(&shared))?;
         eprintln!("caseforge-fleet: socket API on {}", sp.display());
     }
-    if io::stdout().is_terminal() {
+    let result = if io::stdout().is_terminal() {
         run_interactive(shared)
     } else {
-        let st = shared.lock().unwrap();
+        let st = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         print_static(&st);
         Ok(())
+    };
+    if let Some(sp) = &socket_path {
+        let _ = std::fs::remove_file(sp);
     }
+    result
 }

@@ -19,7 +19,7 @@ pub fn handle_command(state: &Shared, req: &Value) -> Value {
     match req.get("cmd").and_then(|c| c.as_str()).unwrap_or("") {
         "ping" => json!({ "ok": true, "reply": "pong" }),
         "list" => {
-            let st = state.lock().unwrap();
+            let st = state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let items: Vec<Value> = st
                 .entries
                 .iter()
@@ -37,10 +37,12 @@ pub fn handle_command(state: &Shared, req: &Value) -> Value {
         }
         "launch" => match req.get("evidence").and_then(|e| e.as_str()) {
             Some(ev) => {
-                let workdir = std::env::temp_dir().join("caseforge-fleet");
+                let cases_root = std::env::var("FINDEVIL_HOME")
+                    .map(|h| std::path::PathBuf::from(h).join("cases"))
+                    .unwrap_or_else(|_| std::env::temp_dir().join("caseforge-fleet"));
                 let cmd = std::env::var("CASEFORGE_CMD").unwrap_or_else(|_| "caseforge".to_string());
-                let mut st = state.lock().unwrap();
-                match st.launch_investigation(ev, &workdir, &cmd) {
+                let mut st = state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                match st.launch_investigation(ev, &cases_root, &cmd) {
                     Ok(()) => json!({ "ok": true, "launched": ev }),
                     Err(e) => json!({ "ok": false, "error": e.to_string() }),
                 }
@@ -55,6 +57,9 @@ pub fn handle_command(state: &Shared, req: &Value) -> Value {
 pub fn serve(path: &Path, state: Shared) -> std::io::Result<()> {
     let _ = std::fs::remove_file(path);
     let listener = UnixListener::bind(path)?;
+    // owner-only: a same-user process can still connect, but not other users.
+    use std::os::unix::fs::PermissionsExt;
+    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
     thread::spawn(move || {
         for stream in listener.incoming().flatten() {
             let state = Arc::clone(&state);

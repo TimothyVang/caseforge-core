@@ -13,6 +13,12 @@ pub struct Session {
     child: Box<dyn portable_pty::Child + Send + Sync>,
 }
 
+impl Drop for Session {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+    }
+}
+
 impl Session {
     /// Spawn `program args` in a fresh PTY; a reader thread appends its output.
     pub fn spawn(program: &str, args: &[String]) -> Result<Session> {
@@ -39,6 +45,15 @@ impl Session {
                     Ok(n) => {
                         if let Ok(mut g) = sink.lock() {
                             g.push_str(&String::from_utf8_lossy(&buf[..n]));
+                            // bound the scrollback: keep the last ~64 KiB
+                            const MAX: usize = 64 * 1024;
+                            if g.len() > MAX {
+                                let mut cut = g.len() - MAX;
+                                while !g.is_char_boundary(cut) {
+                                    cut += 1;
+                                }
+                                *g = g[cut..].to_string();
+                            }
                         }
                     }
                 }
@@ -49,7 +64,7 @@ impl Session {
 
     /// The last `max_lines` lines of captured output (ANSI stripped for display).
     pub fn snapshot_tail(&self, max_lines: usize) -> Vec<String> {
-        let g = self.output.lock().unwrap();
+        let g = self.output.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let stripped = strip_ansi(&g);
         let lines: Vec<&str> = stripped.lines().collect();
         let start = lines.len().saturating_sub(max_lines);

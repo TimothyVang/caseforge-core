@@ -68,7 +68,7 @@ fn base(d: &str) -> &str {
     d.rsplit('/').next().unwrap_or(d)
 }
 
-pub fn render_remote(f: &mut Frame, rows: &[RemoteRow], cursor: usize, sock: &str) {
+pub fn render_remote(f: &mut Frame, rows: &[RemoteRow], cursor: usize, sock: &str, connected: bool) {
     let dim = Style::default().add_modifier(Modifier::DIM);
     let mut lines: Vec<Line> = vec![
         Line::from(vec![
@@ -104,26 +104,35 @@ pub fn render_remote(f: &mut Frame, rows: &[RemoteRow], cursor: usize, sock: &st
                 if sel { Style::default().add_modifier(Modifier::BOLD) } else { Style::default() },
             ),
             Span::styled(format!("{:<16}", r.custody), Style::default().fg(custody_color(&r.custody))),
-            Span::styled(format!("{} ", base(&r.dir)), dim),
+            Span::styled(format!("{:<20} ", base(&r.dir)), dim),
+            Span::styled(format!("{} rec", r.records), dim),
             live,
         ]));
     }
     lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
-        "\u{2191}\u{2193} move \u{b7} r refresh \u{b7} q detach (fleet keeps running)",
-        dim,
-    )));
+    if connected {
+        lines.push(Line::from(Span::styled(
+            "\u{2191}\u{2193} move \u{b7} r refresh \u{b7} q detach (fleet keeps running)",
+            dim,
+        )));
+    } else {
+        lines.push(Line::from(Span::styled(
+            "\u{26a0} fleet server disconnected \u{b7} q to exit",
+            Style::default().fg(CORAL).add_modifier(Modifier::BOLD),
+        )));
+    }
     f.render_widget(Paragraph::new(lines), f.area());
 }
 
-fn query(reader: &mut BufReader<UnixStream>, writer: &mut UnixStream) -> Vec<RemoteRow> {
+fn query(reader: &mut BufReader<UnixStream>, writer: &mut UnixStream) -> Option<Vec<RemoteRow>> {
     if writeln!(writer, "{{\"cmd\":\"list\"}}").is_err() {
-        return vec![];
+        return None;
     }
     let mut line = String::new();
     match reader.read_line(&mut line) {
-        Ok(_) => serde_json::from_str::<Value>(&line).map(|v| parse_list(&v)).unwrap_or_default(),
-        Err(_) => vec![],
+        Ok(0) => None, // EOF: the fleet server closed the connection
+        Ok(_) => Some(serde_json::from_str::<Value>(&line).map(|v| parse_list(&v)).unwrap_or_default()),
+        Err(_) => None,
     }
 }
 
@@ -138,13 +147,14 @@ pub fn run_attached(socket: &Path) -> io::Result<()> {
     execute!(out, EnterAlternateScreen, cursor::Hide)?;
     let mut term = Terminal::new(CrosstermBackend::new(out))?;
 
-    let mut rows = query(&mut reader, &mut writer);
+    let mut rows = query(&mut reader, &mut writer).unwrap_or_default();
     let mut cur = 0usize;
+    let mut connected = true;
     let res = (|| -> io::Result<()> {
         loop {
             let c = cur.min(rows.len().saturating_sub(1));
             cur = c;
-            term.draw(|f| render_remote(f, &rows, cur, &sock_str))?;
+            term.draw(|f| render_remote(f, &rows, cur, &sock_str, connected))?;
             if event::poll(Duration::from_millis(1500))? {
                 if let Event::Key(k) = event::read()? {
                     let ctrlc = k.modifiers.contains(KeyModifiers::CONTROL)
@@ -156,12 +166,18 @@ pub fn run_attached(socket: &Path) -> io::Result<()> {
                         KeyCode::Down | KeyCode::Char('j') => {
                             cur = (cur + 1).min(rows.len().saturating_sub(1))
                         }
-                        KeyCode::Char('r') => rows = query(&mut reader, &mut writer),
+                        KeyCode::Char('r') => match query(&mut reader, &mut writer) {
+                            Some(r) => rows = r,
+                            None => connected = false,
+                        },
                         _ => {}
                     }
                 }
-            } else {
-                rows = query(&mut reader, &mut writer);
+            } else if connected {
+                match query(&mut reader, &mut writer) {
+                    Some(r) => rows = r,
+                    None => connected = false,
+                }
             }
         }
         Ok(())
@@ -196,7 +212,7 @@ mod tests {
             {"dir":"/runs/host-x","state":"Working","custody":"Complete","records":5,"live":true}
         ]}));
         let mut term = Terminal::new(TestBackend::new(90, 10)).unwrap();
-        term.draw(|f| render_remote(f, &rows, 0, "/tmp/f.sock")).unwrap();
+        term.draw(|f| render_remote(f, &rows, 0, "/tmp/f.sock", true)).unwrap();
         let buf = term.backend().buffer().clone();
         let area = *buf.area();
         let mut text = String::new();

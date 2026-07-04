@@ -109,6 +109,51 @@ pub fn audit_tail(dir: &Path, n: usize) -> Vec<AuditRec> {
         .collect()
 }
 
+fn decide_state(last_kind: Option<&str>, has_manifest: bool, age: Option<u64>) -> RunState {
+    if last_kind.map(|k| BLOCKED_KINDS.contains(&k)).unwrap_or(false) {
+        RunState::Blocked
+    } else if has_manifest {
+        RunState::Done
+    } else if age.map(|a| a <= WORKING_WINDOW_SECS).unwrap_or(false) {
+        RunState::Working
+    } else {
+        RunState::Idle
+    }
+}
+
+/// Cheap change-detection key for a run dir: (audit mtime, audit size, manifest?).
+/// If unchanged between ticks, the audit need not be re-parsed.
+pub fn fingerprint(dir: &Path) -> (u64, u64, bool) {
+    let (mt, sz) = fs::metadata(dir.join("audit.jsonl"))
+        .ok()
+        .map(|m| {
+            let mt = m
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            (mt, m.len())
+        })
+        .unwrap_or((0, 0));
+    (mt, sz, dir.join("run.manifest.json").exists())
+}
+
+/// Cheap status refresh when the audit file is unchanged: re-stat only (no parse),
+/// keeping the cached parsed facts but recomputing the age-dependent state.
+pub fn refresh_status(dir: &Path, now_secs: u64, cached: &Status) -> Status {
+    let age = audit_age_secs(dir, now_secs);
+    let has_manifest = dir.join("run.manifest.json").exists();
+    Status {
+        dir: cached.dir.clone(),
+        state: decide_state(cached.last_kind.as_deref(), has_manifest, age),
+        custody: cached.custody,
+        audit_records: cached.audit_records,
+        last_kind: cached.last_kind.clone(),
+        age_secs: age,
+    }
+}
+
 /// Derive the full status of a run directory as of `now_secs` (unix seconds).
 pub fn derive_status(dir: &Path, now_secs: u64) -> Status {
     let audit = parse_audit(dir);
@@ -122,19 +167,7 @@ pub fn derive_status(dir: &Path, now_secs: u64) -> Status {
     let has_manifest = dir.join("run.manifest.json").exists();
     let has_audit = dir.join("audit.jsonl").exists();
 
-    let state = if last_kind
-        .as_deref()
-        .map(|k| BLOCKED_KINDS.contains(&k))
-        .unwrap_or(false)
-    {
-        RunState::Blocked
-    } else if has_manifest {
-        RunState::Done
-    } else if age.map(|a| a <= WORKING_WINDOW_SECS).unwrap_or(false) {
-        RunState::Working
-    } else {
-        RunState::Idle
-    };
+    let state = decide_state(last_kind.as_deref(), has_manifest, age);
 
     let custody = if !has_manifest || !has_audit {
         Custody::Incomplete
