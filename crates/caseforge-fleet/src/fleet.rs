@@ -98,6 +98,7 @@ impl FleetState {
     /// Re-derive every investigation's status (called on the live-refresh tick).
     pub fn refresh(&mut self, now_secs: u64) {
         self.resolve_pending();
+        self.reap_sessions();
         for e in self.entries.iter_mut() {
             let fp = crate::status::fingerprint(&e.dir);
             if self.fingerprints.get(&e.dir) == Some(&fp) {
@@ -177,6 +178,20 @@ impl FleetState {
             before,
         });
         Ok(())
+    }
+
+    /// Drop tracked sessions whose process has exited, so effective_state falls
+    /// back to the sealed on-disk status (Done) instead of forcing Working forever.
+    fn reap_sessions(&mut self) {
+        let mut done = Vec::new();
+        for (dir, sess) in self.sessions.iter_mut() {
+            if !sess.is_running() {
+                done.push(dir.clone());
+            }
+        }
+        for dir in done {
+            self.sessions.remove(&dir);
+        }
     }
 
     /// Adopt case dirs that have appeared since a launch; drop launches whose
@@ -309,10 +324,21 @@ mod tests {
         std::fs::create_dir_all(root.join("new-case")).unwrap();
         std::fs::write(root.join("new-case/run.manifest.json"), "{}").unwrap();
         std::fs::write(root.join("new-case/audit.jsonl"), "").unwrap();
-        st.refresh(0);
+        // hold the session alive so it isn't reaped before we observe adoption
+        st.launch(std::path::PathBuf::from("/keep-alive"), "sleep", &["30".into()]).ok();
+        st.resolve_pending();
         assert!(st.entries.iter().any(|e| e.dir.ends_with("new-case")), "adopted new dir");
-        assert!(st.sessions.keys().any(|d| d.ends_with("new-case")), "session tracked");
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn reap_removes_exited_sessions() {
+        let mut st = FleetState::scan(&[], 0);
+        st.launch(PathBuf::from("/tmp/cf-reap-x"), "true", &[]).unwrap();
+        assert!(st.sessions.contains_key(Path::new("/tmp/cf-reap-x")));
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        st.refresh(0);
+        assert!(!st.sessions.contains_key(Path::new("/tmp/cf-reap-x")), "exited session reaped");
     }
 
     #[test]

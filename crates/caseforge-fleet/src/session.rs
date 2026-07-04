@@ -111,7 +111,8 @@ mod tests {
         let tail = s.snapshot_tail(10).join("\n");
         assert!(tail.contains("alpha"), "got: {tail:?}");
         assert!(tail.contains("beta"));
-        let _ = s.is_running();
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(!s.is_running(), "exited PTY child detected");
     }
 
     #[test]
