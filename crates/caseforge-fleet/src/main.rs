@@ -4,6 +4,7 @@
 mod fleet;
 mod launch;
 mod session;
+mod socket;
 mod status;
 mod ui;
 
@@ -39,54 +40,64 @@ fn map_key(code: KeyCode) -> Key {
     }
 }
 
-fn run_interactive(mut st: FleetState) -> io::Result<()> {
+fn run_interactive(shared: socket::Shared) -> io::Result<()> {
     enable_raw_mode()?;
     let mut out = io::stdout();
     execute!(out, EnterAlternateScreen, cursor::Hide)?;
     let mut term = Terminal::new(CrosstermBackend::new(out))?;
     let res = (|| -> io::Result<()> {
         loop {
-            term.draw(|f| ui::render(f, &st))?;
+            {
+                let st = shared.lock().unwrap();
+                term.draw(|f| ui::render(f, &st))?;
+            }
             if event::poll(Duration::from_millis(1000))? {
                 if let Event::Key(k) = event::read()? {
-                    if st.input.is_some() {
-                        match k.code {
-                            KeyCode::Char(c) => st.input_push(c),
-                            KeyCode::Backspace => st.input_backspace(),
-                            KeyCode::Esc => st.cancel_input(),
-                            KeyCode::Enter => {
-                                if let Some(ev) = st.take_input() {
-                                    let workdir = std::env::var("FLEET_WORKDIR")
-                                        .map(PathBuf::from)
-                                        .unwrap_or_else(|_| std::env::temp_dir().join("caseforge-fleet"));
-                                    let cmd = std::env::var("CASEFORGE_CMD")
-                                        .unwrap_or_else(|_| "caseforge".to_string());
-                                    let _ = st.launch_investigation(&ev, &workdir, &cmd);
-                                }
-                            }
-                            _ => {}
-                        }
-                    } else if k.modifiers.contains(KeyModifiers::CONTROL)
-                        && matches!(k.code, KeyCode::Char('c'))
+                    let mut open_dir: Option<PathBuf> = None;
+                    let quit;
                     {
-                        st.quit = true;
-                    } else if matches!(k.code, KeyCode::Char('n')) {
-                        st.begin_input();
-                    } else {
-                        st.on_key(map_key(k.code));
-                        if st.pending_open {
-                            st.pending_open = false;
-                            if let Some(dir) = st.selected().map(|s| s.dir.clone()) {
-                                open_viewer(&mut term, &dir)?;
+                        let mut st = shared.lock().unwrap();
+                        if st.input.is_some() {
+                            match k.code {
+                                KeyCode::Char(c) => st.input_push(c),
+                                KeyCode::Backspace => st.input_backspace(),
+                                KeyCode::Esc => st.cancel_input(),
+                                KeyCode::Enter => {
+                                    if let Some(ev) = st.take_input() {
+                                        let workdir = std::env::var("FLEET_WORKDIR")
+                                            .map(PathBuf::from)
+                                            .unwrap_or_else(|_| std::env::temp_dir().join("caseforge-fleet"));
+                                        let cmd = std::env::var("CASEFORGE_CMD")
+                                            .unwrap_or_else(|_| "caseforge".to_string());
+                                        let _ = st.launch_investigation(&ev, &workdir, &cmd);
+                                    }
+                                }
+                                _ => {}
+                            }
+                        } else if k.modifiers.contains(KeyModifiers::CONTROL)
+                            && matches!(k.code, KeyCode::Char('c'))
+                        {
+                            st.quit = true;
+                        } else if matches!(k.code, KeyCode::Char('n')) {
+                            st.begin_input();
+                        } else {
+                            st.on_key(map_key(k.code));
+                            if st.pending_open {
+                                st.pending_open = false;
+                                open_dir = st.selected().map(|s| s.dir.clone());
                             }
                         }
+                        quit = st.quit;
                     }
-                    if st.quit {
+                    if let Some(dir) = open_dir {
+                        open_viewer(&mut term, &dir)?;
+                    }
+                    if quit {
                         break;
                     }
                 }
             } else {
-                // tick: re-derive live status (working -> done transitions show up)
+                let mut st = shared.lock().unwrap();
                 st.refresh(now_secs());
             }
         }
@@ -123,15 +134,30 @@ fn print_static(st: &FleetState) {
 }
 
 fn main() -> io::Result<()> {
-    let dirs: Vec<PathBuf> = std::env::args().skip(1).map(PathBuf::from).collect();
-    if dirs.is_empty() {
-        eprintln!("usage: caseforge-fleet <run-dir> [run-dir ...]");
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    let mut socket_path: Option<PathBuf> = None;
+    let mut it = std::env::args().skip(1);
+    while let Some(a) = it.next() {
+        if a == "--socket" {
+            socket_path = it.next().map(PathBuf::from);
+        } else {
+            dirs.push(PathBuf::from(a));
+        }
+    }
+    if dirs.is_empty() && socket_path.is_none() {
+        eprintln!("usage: caseforge-fleet <run-dir> [run-dir ...] [--socket <path>]");
         std::process::exit(2);
     }
-    let st = FleetState::scan(&dirs, now_secs());
+    let shared: socket::Shared =
+        std::sync::Arc::new(std::sync::Mutex::new(FleetState::scan(&dirs, now_secs())));
+    if let Some(sp) = &socket_path {
+        socket::serve(sp, std::sync::Arc::clone(&shared))?;
+        eprintln!("caseforge-fleet: socket API on {}", sp.display());
+    }
     if io::stdout().is_terminal() {
-        run_interactive(st)
+        run_interactive(shared)
     } else {
+        let st = shared.lock().unwrap();
         print_static(&st);
         Ok(())
     }
