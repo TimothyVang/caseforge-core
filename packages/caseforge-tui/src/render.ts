@@ -102,14 +102,23 @@ export function renderTimeline(v: CaseView): string {
   return `${head}  ${DIM}${v.timeline.length} events${RESET}\n${rows.join("\n")}${more}`
 }
 
-export function renderPicker(entries: RunEntry[]): string {
+export function renderPicker(entries: RunEntry[], cursor?: number): string {
   const head = `${LILAC}${BOLD}CASES${RESET}`
   if (entries.length === 0) return `${head}\n  ${DIM}no run directories found${RESET}`
   const rows = entries.map((e, i) => {
     const l = e.status === "complete" && e.custodyValid ? SEAFOAM : e.status === "custody-invalid" ? CORAL : BUTTER
-    return `  ${DIM}${String(i + 1).padStart(2)}${RESET} ${l}●${RESET} ${e.status.padEnd(16)} ${DIM}${e.dir}${RESET}`
+    const sel = i === cursor
+    const arrow = sel ? `${LILAC}▶${RESET}` : " "
+    const label = sel ? `${BOLD}${e.status.padEnd(16)}${RESET}` : e.status.padEnd(16)
+    return `${arrow} ${DIM}${String(i + 1).padStart(2)}${RESET} ${l}●${RESET} ${label} ${DIM}${e.dir}${RESET}`
   })
   return `${head}  ${DIM}${entries.length}${RESET}\n${rows.join("\n")}`
+}
+
+export function renderFooter(view: "picker" | "case"): string {
+  return view === "picker"
+    ? `${DIM}↑↓ move · enter open · q quit${RESET}`
+    : `${DIM}q back · ctrl-c quit${RESET}`
 }
 
 export function renderScreen(v: CaseView): string {

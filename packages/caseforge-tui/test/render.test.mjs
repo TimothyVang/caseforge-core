@@ -70,3 +70,13 @@ test("picker discovers the synthetic run dirs with statuses", async () => {
   assert.match(p, /CASES/)
   assert.match(p, /sample-run/)
 })
+
+test("picker highlights the cursor row", async () => {
+  const runs = await listRunsP([SYNTH_ROOT])
+  const p = renderPicker(runs, 1)
+  const lines = p.split("\n")
+  // the 2nd run row (index 1) carries the cursor arrow; row 0 does not
+  const rowLines = lines.filter((l) => /fixtures\/synthetic/.test(l))
+  assert.match(rowLines[1], /▶/)
+  assert.doesNotMatch(rowLines[0], /▶/)
+})

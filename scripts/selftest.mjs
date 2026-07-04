@@ -115,6 +115,9 @@ console.log("tui workbench:")
   const { renderPicker } = await import("../packages/caseforge-tui/dist/src/render.js")
   const runs = await listRuns([fileURLToPath(new URL("../fixtures/synthetic", import.meta.url))])
   ok("tui: picker discovers runs with validated status", runs.length >= 3 && /CASES/.test(renderPicker(runs)))
+  const { keyOf, reduce, initialState } = await import("../packages/caseforge-tui/dist/src/app.js")
+  ok("tui: keyOf maps arrow/enter/quit", keyOf("\x1b[A") === "up" && keyOf("\r") === "enter" && keyOf("\x03") === "quit")
+  ok("tui: reduce navigates picker<->case", reduce(reduce(initialState, "enter", 3), "back", 3).view === "picker")
 }
 
 console.log(`\n${pass} passed, ${fail} failed`)
