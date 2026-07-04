@@ -86,6 +86,11 @@ fn row(i: usize, s: &Status, sel: bool, st_state: RunState) -> Line<'static> {
         custody_span(s.custody),
         Span::raw(" "),
         Span::styled(dir_name(s), dim),
+        if s.custody == Custody::CustodyInvalid {
+            Span::styled(" \u{26a0}", Style::default().fg(CORAL))
+        } else {
+            Span::raw("")
+        },
     ])
 }
 
@@ -198,12 +203,20 @@ fn detail_lines(st: &FleetState) -> Vec<Line<'static>> {
             },
             dim,
         )),
+    ];
+    if s.custody == Custody::CustodyInvalid {
+        lines.push(Line::from(Span::styled(
+            "\u{26a0} custody not verified",
+            Style::default().fg(CORAL).add_modifier(Modifier::BOLD),
+        )));
+    }
+    lines.extend([
         Line::from(""),
         Line::from(Span::styled(
             "AUDIT TAIL",
             Style::default().fg(LILAC).add_modifier(Modifier::BOLD),
         )),
-    ];
+    ]);
     if let Some(out) = st.live_output(&s.dir, 16) {
         lines.pop(); // replace the "AUDIT TAIL" header with a LIVE header
         lines.push(Line::from(vec![
