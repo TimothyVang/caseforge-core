@@ -6,12 +6,16 @@
   "license": "Apache-2.0",
   "author": "Timothy Vang",
   "type": "module",
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "build": "npm run build -w @verdict/caseforge-sdk && npm run build -w @verdict/caseforge-cli",
+    "build": "npm run build -w @verdict/caseforge-sdk && npm run build -w @verdict/caseforge-cli && npm run build -w @verdict/caseforge-tui",
     "typecheck": "npm run build -w @verdict/caseforge-sdk && npm run typecheck -w @verdict/caseforge-cli",
     "selftest": "node scripts/selftest.mjs",
     "doctor": "node packages/caseforge-cli/dist/src/cli.js doctor"
   },
-  "engines": { "node": ">=20" }
+  "engines": {
+    "node": ">=20"
+  }
 }

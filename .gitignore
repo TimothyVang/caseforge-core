@@ -6,3 +6,4 @@ target/
 *.log
 .env
 .DS_Store
+/packages/caseforge-tui/dist/

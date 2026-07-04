@@ -1,0 +1,13 @@
+{
+  "name": "@verdict/caseforge-tui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "caseforge operator workbench — read-only, custody-forward case viewer.",
+  "bin": { "caseforge-tui": "./dist/src/tui.js" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": { "@verdict/caseforge-sdk": "*" }
+}

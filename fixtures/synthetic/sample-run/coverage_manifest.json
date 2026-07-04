@@ -1,0 +1,1 @@
+{ "classes": [ { "artifact_class": "evtx", "available": true, "attempted": true, "parsed": true }, { "artifact_class": "registry", "available": true, "attempted": true, "parsed": false } ] }
