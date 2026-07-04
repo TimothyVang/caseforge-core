@@ -2,13 +2,14 @@
 //! Interactive at a TTY; static status scan when piped (keeps CI/tests headless).
 
 mod fleet;
+mod launch;
 mod status;
 mod ui;
 
 use fleet::{FleetState, Key};
 use std::io::{self, IsTerminal};
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ratatui::backend::CrosstermBackend;
 use ratatui::crossterm::event::{self, Event, KeyCode};
@@ -44,11 +45,16 @@ fn run_interactive(mut st: FleetState) -> io::Result<()> {
     let res = (|| -> io::Result<()> {
         loop {
             term.draw(|f| ui::render(f, &st))?;
-            if let Event::Key(k) = event::read()? {
-                st.on_key(map_key(k.code));
-                if st.quit {
-                    break;
+            if event::poll(Duration::from_millis(1000))? {
+                if let Event::Key(k) = event::read()? {
+                    st.on_key(map_key(k.code));
+                    if st.quit {
+                        break;
+                    }
                 }
+            } else {
+                // tick: re-derive live status (working -> done transitions show up)
+                st.refresh(now_secs());
             }
         }
         Ok(())

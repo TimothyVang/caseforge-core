@@ -153,6 +153,43 @@ mod tests {
         assert_eq!(s.custody, Custody::CustodyInvalid);
     }
 
+
+    fn tmp(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("cf-fleet-{}-{}", std::process::id(), name));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    fn now() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+    }
+
+    #[test]
+    fn fresh_audit_no_manifest_is_working() {
+        let d = tmp("working");
+        fs::write(d.join("audit.jsonl"), "{\"seq\":1,\"kind\":\"tool_call_result\"}\n").unwrap();
+        let s = derive_status(&d, now());
+        assert_eq!(s.state, RunState::Working); // recent audit, no run.manifest.json
+        fs::remove_dir_all(&d).ok();
+    }
+
+    #[test]
+    fn heartbeat_failure_is_blocked() {
+        let d = tmp("blocked");
+        fs::write(
+            d.join("audit.jsonl"),
+            "{\"seq\":1,\"kind\":\"case_open\"}\n{\"seq\":2,\"kind\":\"heartbeat_failure\"}\n",
+        )
+        .unwrap();
+        let s = derive_status(&d, now());
+        assert_eq!(s.state, RunState::Blocked);
+        fs::remove_dir_all(&d).ok();
+    }
+
     #[test]
     fn missing_dir_is_incomplete_idle() {
         let s = derive_status(&fixtures().join("does-not-exist"), 4_000_000_000);

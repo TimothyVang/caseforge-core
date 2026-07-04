@@ -26,6 +26,13 @@ impl FleetState {
         FleetState { entries, cursor: 0, quit: false }
     }
 
+    /// Re-derive every investigation's status (called on the live-refresh tick).
+    pub fn refresh(&mut self, now_secs: u64) {
+        for e in self.entries.iter_mut() {
+            *e = derive_status(&e.dir, now_secs);
+        }
+    }
+
     pub fn selected(&self) -> Option<&Status> {
         self.entries.get(self.cursor)
     }
