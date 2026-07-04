@@ -5,7 +5,8 @@ use crate::fleet::{FleetState, View};
 use crate::status::{Custody, RunState, Status};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::Paragraph;
+use ratatui::layout::{Constraint, Direction, Layout};
+use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
 const LILAC: Color = Color::Rgb(184, 168, 255);
@@ -73,7 +74,7 @@ fn row(i: usize, s: &Status, sel: bool, st_state: RunState) -> Line<'static> {
     ])
 }
 
-fn render_list(f: &mut Frame, st: &FleetState) {
+fn list_lines(st: &FleetState) -> Vec<Line<'static>> {
     let dim = Style::default().add_modifier(Modifier::DIM);
     let mut lines: Vec<Line> = vec![
         Line::from(vec![
@@ -108,21 +109,42 @@ fn render_list(f: &mut Frame, st: &FleetState) {
             dim,
         )));
     }
-    f.render_widget(Paragraph::new(lines), f.area());
+    lines
 }
 
 pub fn render(f: &mut Frame, st: &FleetState) {
     match st.view {
-        View::List => render_list(f, st),
-        View::Detail => render_detail(f, st),
+        // Zoomed: full-screen detail of the selected investigation.
+        View::Detail => {
+            f.render_widget(Paragraph::new(detail_lines(st)), f.area());
+        }
+        // Split: fleet grid (left) + live detail of the selected one (right).
+        View::List => {
+            let cols = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(46), Constraint::Percentage(54)])
+                .split(f.area());
+            f.render_widget(Paragraph::new(list_lines(st)), cols[0]);
+            let right = Paragraph::new(detail_lines(st)).block(
+                Block::default()
+                    .borders(Borders::LEFT)
+                    .border_style(Style::default().add_modifier(Modifier::DIM)),
+            );
+            f.render_widget(right, cols[1]);
+        }
     }
 }
 
-fn render_detail(f: &mut Frame, st: &FleetState) {
+fn detail_lines(st: &FleetState) -> Vec<Line<'static>> {
     let dim = Style::default().add_modifier(Modifier::DIM);
     let s = match st.selected() {
         Some(s) => s,
-        None => return render_list(f, st),
+        None => {
+            return vec![Line::from(Span::styled(
+                "(no investigation selected)",
+                Style::default().add_modifier(Modifier::DIM),
+            ))]
+        }
     };
     let mut lines: Vec<Line> = vec![
         Line::from(vec![
@@ -177,7 +199,7 @@ fn render_detail(f: &mut Frame, st: &FleetState) {
         "o open full viewer \u{b7} q back",
         dim,
     )));
-    f.render_widget(Paragraph::new(lines), f.area());
+    lines
 }
 
 pub(crate) fn name_of(s: &Status) -> String {
