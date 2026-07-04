@@ -10,7 +10,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build -w @verdict/caseforge-sdk && npm run build -w @verdict/caseforge-cli && npm run build -w @verdict/caseforge-tui",
+    "build": "npm run build -w @verdict/caseforge-sdk && npm run build -w @verdict/caseforge-tui && npm run build -w @verdict/caseforge-cli",
     "typecheck": "npm run build -w @verdict/caseforge-sdk && npm run typecheck -w @verdict/caseforge-cli",
     "selftest": "node scripts/selftest.mjs",
     "doctor": "node packages/caseforge-cli/dist/src/cli.js doctor"

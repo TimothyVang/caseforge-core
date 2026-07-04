@@ -10,6 +10,7 @@
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
+import { fileURLToPath } from "node:url"
 import {
   decideModel,
   validateFinding,
@@ -94,6 +95,18 @@ try {
   ok("hash mismatch => not verified", verifyCitations([{ tool_call_id: "c1", output_sha256: "b".repeat(64) }], audit).verified === false)
 } finally {
   rmSync(dir, { recursive: true, force: true })
+}
+
+console.log("tui workbench:")
+{
+  const { loadCase } = await import("../packages/caseforge-tui/dist/src/load.js")
+  const { renderHeader, renderFindings, renderScreen } = await import("../packages/caseforge-tui/dist/src/render.js")
+  const fixDir = fileURLToPath(new URL("../fixtures/synthetic/sample-run", import.meta.url))
+  const v = await loadCase(fixDir)
+  ok("tui: fixture run validates complete + custody re-verified", v.validation.status === "complete" && v.validation.custodyValid === true)
+  ok("tui: header renders verdict + dual custody lights", /SUSPICIOUS/.test(renderHeader(v)) && /re-verified now/.test(renderHeader(v)))
+  ok("tui: findings render cited tool_call_id", /tc-1/.test(renderFindings(v)) && /cited/.test(renderFindings(v)))
+  ok("tui: screen composes all panels", renderScreen(v).length > 200)
 }
 
 console.log(`\n${pass} passed, ${fail} failed`)

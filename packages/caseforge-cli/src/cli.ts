@@ -14,6 +14,7 @@ import { models } from "./commands/models.js"
 import { investigate } from "./commands/investigate.js"
 import { verify } from "./commands/verify.js"
 import { gatewayStart, benchmarkRun, ocr, ingest } from "./commands/stubs.js"
+import { launchTui } from "@verdict/caseforge-tui"
 
 interface Parsed {
   positionals: string[]
@@ -46,6 +47,7 @@ function usage(): void {
       [--privacy local-only|redacted-cloud|cloud-ok] [--evidence synthetic|public|approved|sensitive]
       [--route ID] [--command triage|disk|memory|evtx|network|...]
   verify <run-dir>                validate VERDICT run artifacts + custody
+  tui [run-dir]                                             read-only workbench
   gateway start | benchmark run | ocr <id> | ingest <path>   (planned)
 
 privacy defaults to local-only; evidence defaults to sensitive (fail-closed).`)
@@ -72,6 +74,8 @@ async function main(): Promise<number> {
         runDir: typeof flags["run-dir"] === "string" ? (flags["run-dir"] as string) : undefined,
         noVerify: flags["no-verify"] === true,
       })
+    case "tui":
+      return await launchTui(positionals[1])
     case "verify":
       return verify(rest)
     case "gateway":

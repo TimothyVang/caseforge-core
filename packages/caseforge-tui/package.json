@@ -3,11 +3,22 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "caseforge operator workbench — read-only, custody-forward case viewer.",
-  "bin": { "caseforge-tui": "./dist/src/tui.js" },
+  "description": "caseforge operator workbench \u2014 read-only, custody-forward case viewer.",
+  "bin": {
+    "caseforge-tui": "./dist/src/tui.js"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
-  "dependencies": { "@verdict/caseforge-sdk": "*" }
+  "dependencies": {
+    "@verdict/caseforge-sdk": "*"
+  },
+  "main": "./dist/src/index.js",
+  "exports": {
+    ".": {
+      "import": "./dist/src/index.js",
+      "types": "./dist/src/index.d.ts"
+    }
+  }
 }
