@@ -40,10 +40,13 @@ const BROKEN = join(here, "..", "..", "..", "fixtures", "synthetic", "broken-cha
 const NOREPORT = join(here, "..", "..", "..", "fixtures", "synthetic", "no-report-run")
 
 test("timeline panel renders events from normalized_timeline", async () => {
-  const v = await loadCase(FIX)
-  // sample-run has no normalized_timeline -> honest degrade
-  assert.match(renderTimeline(v), /TIMELINE/)
-  assert.match(renderTimeline(v), /not produced by this run/)
+  const t = renderTimeline(await loadCase(FIX))
+  assert.match(t, /TIMELINE/)
+  assert.match(t, /T1070\.001/)
+  assert.match(t, /events/)
+})
+test("timeline degrades honestly when absent", async () => {
+  assert.match(renderTimeline(await loadCase(NOREPORT)), /not produced by this run/)
 })
 test("broken audit chain is caught by the structural check", async () => {
   const v = await loadCase(BROKEN)
@@ -79,4 +82,27 @@ test("picker highlights the cursor row", async () => {
   const rowLines = lines.filter((l) => /fixtures\/synthetic/.test(l))
   assert.match(rowLines[1], /▶/)
   assert.doesNotMatch(rowLines[0], /▶/)
+})
+
+test("picker flags a run whose audit chain is structurally broken", async () => {
+  const runs = await listRunsP([SYNTH_ROOT])
+  const broken = runs.find((r) => /broken-chain-run/.test(r.dir))
+  assert.ok(broken, "broken-chain-run present")
+  assert.equal(broken.chainOk, false)
+  const good = runs.find((r) => /sample-run/.test(r.dir))
+  assert.equal(good.chainOk, true)
+  const p = renderPicker(runs, 0)
+  assert.match(p, /⚠ chain/) // the broken run is flagged even though status=complete
+})
+
+import { renderCustodyBanner } from "../dist/src/render.js"
+const CINVALID = join(here, "..", "..", "..", "fixtures", "synthetic", "custody-invalid-run")
+
+test("custody-invalid case shows a NOT VERIFIED banner over findings", async () => {
+  const v = await loadCase(CINVALID)
+  assert.match(renderCustodyBanner(v), /CUSTODY NOT VERIFIED/)
+  assert.match(renderScreen(v), /CUSTODY NOT VERIFIED/)
+})
+test("valid custody shows no warning banner", async () => {
+  assert.equal(renderCustodyBanner(await loadCase(FIX)), "")
 })

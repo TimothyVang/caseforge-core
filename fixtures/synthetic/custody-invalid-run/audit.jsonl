@@ -1,0 +1,2 @@
+{"seq":1,"kind":"case_open","prev_hash":"","ts":"2021-06-15T08:00:00Z","payload":{"tool_name":"case_open"}}
+{"seq":2,"kind":"tool_call_result","prev_hash":"h1","ts":"2021-06-15T09:00:00Z","payload":{"tool_name":"evtx_query","tool_call_id":"tc-1","output_sha256":"aa11"}}

@@ -118,6 +118,12 @@ console.log("tui workbench:")
   const { keyOf, reduce, initialState } = await import("../packages/caseforge-tui/dist/src/app.js")
   ok("tui: keyOf maps arrow/enter/quit", keyOf("\x1b[A") === "up" && keyOf("\r") === "enter" && keyOf("\x03") === "quit")
   ok("tui: reduce navigates picker<->case", reduce(reduce(initialState, "enter", 3), "back", 3).view === "picker")
+  ok("tui: picker flags a structurally-broken audit chain", runs.some((r) => /broken-chain-run/.test(r.dir) && r.chainOk === false) && /⚠ chain/.test(renderPicker(runs)))
+  const { renderHeader: rh } = await import("../packages/caseforge-tui/dist/src/render.js")
+  const ci = await loadCase(fileURLToPath(new URL("../fixtures/synthetic/custody-invalid-run", import.meta.url)))
+  ok("tui: custody-invalid run re-verifies as invalid", ci.validation.status === "custody-invalid" && ci.validation.custodyValid === false)
+  const { renderCustodyBanner } = await import("../packages/caseforge-tui/dist/src/render.js")
+  ok("tui: invalid custody warns over findings; valid does not", /CUSTODY NOT VERIFIED/.test(renderCustodyBanner(ci)) && renderCustodyBanner(v) === "")
 }
 
 console.log(`\n${pass} passed, ${fail} failed`)

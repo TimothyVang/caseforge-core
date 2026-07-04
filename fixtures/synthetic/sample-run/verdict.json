@@ -3,6 +3,11 @@
   "verdict": "SUSPICIOUS",
   "attack_story": { "headline": "Synthetic: log clearing on HOST-X" },
   "attack_coverage": { "observed_techniques": ["T1070.001", "T1547.001"] },
+  "normalized_timeline": { "events": [
+    { "timestamp_utc": "2021-06-15T09:00:00Z", "confidence": "INFERRED", "attck_techniques": ["T1547.001"], "significance": "context", "summary": "Run key created under HKLM..Run" },
+    { "timestamp_utc": "2021-06-15T12:30:00Z", "confidence": "CONFIRMED", "attck_techniques": ["T1070.001"], "significance": "finding_support", "summary": "Security event log cleared (EID 1102)" },
+    { "timestamp_utc": "2021-06-15T12:35:00Z", "confidence": "CONFIRMED", "attck_techniques": ["T1070.001"], "significance": "finding_support", "summary": "Audit manifest sealed" }
+  ] },
   "findings": [
     { "finding_id": "f-1", "mitre_technique": "T1070.001", "named_technique": "Security log clearing (T1070.001)", "description": "Security event log cleared", "confidence": "CONFIRMED", "host": "HOST-X", "ts": "2021-06-15T12:30:00Z", "tool_call_id": "tc-1", "output_sha256": "aa11" },
     { "finding_id": "f-2", "mitre_technique": "T1547.001", "named_technique": "Run key persistence (T1547.001)", "description": "Run key set for persistence", "confidence": "INFERRED", "host": "HOST-X", "ts": "2021-06-15T09:00:00Z", "tool_call_id": "tc-2", "output_sha256": "bb22" }

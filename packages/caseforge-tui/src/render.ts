@@ -110,7 +110,8 @@ export function renderPicker(entries: RunEntry[], cursor?: number): string {
     const sel = i === cursor
     const arrow = sel ? `${LILAC}▶${RESET}` : " "
     const label = sel ? `${BOLD}${e.status.padEnd(16)}${RESET}` : e.status.padEnd(16)
-    return `${arrow} ${DIM}${String(i + 1).padStart(2)}${RESET} ${l}●${RESET} ${label} ${DIM}${e.dir}${RESET}`
+    const warn = e.chainOk ? "" : ` ${CORAL}⚠ chain${RESET}`
+    return `${arrow} ${DIM}${String(i + 1).padStart(2)}${RESET} ${l}●${RESET} ${label} ${DIM}${e.dir}${RESET}${warn}`
   })
   return `${head}  ${DIM}${entries.length}${RESET}\n${rows.join("\n")}`
 }
@@ -121,6 +122,16 @@ export function renderFooter(view: "picker" | "case"): string {
     : `${DIM}q back · ctrl-c quit${RESET}`
 }
 
+export function renderCustodyBanner(v: CaseView): string {
+  if (v.validation.custodyValid && v.chainOk) return ""
+  const msgs: string[] = []
+  if (!v.validation.custodyValid) msgs.push("manifest seal not verified")
+  if (!v.chainOk && v.audit.length > 0) msgs.push("audit chain linkage broken")
+  return `${CORAL}${BOLD}⚠ CUSTODY NOT VERIFIED${RESET} ${DIM}— ${msgs.join("; ")}; findings below are not backed by valid custody${RESET}`
+}
+
 export function renderScreen(v: CaseView): string {
-  return [renderHeader(v), renderFindings(v), renderTimeline(v), renderCoverage(v), renderAudit(v)].join("\n\n")
+  return [renderHeader(v), renderCustodyBanner(v), renderFindings(v), renderTimeline(v), renderCoverage(v), renderAudit(v)]
+    .filter((s) => s.length > 0)
+    .join("\n\n")
 }

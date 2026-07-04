@@ -121,6 +121,12 @@ function chainStructurallyOk(records: AuditRecord[]): boolean {
   return true
 }
 
+/** Structural chain check for a run dir (used by the picker to flag a run
+ * whose audit chain is broken even when its manifest seal validates). */
+export async function auditChainOk(runDir: string): Promise<boolean> {
+  return chainStructurallyOk(await readAudit(runDir))
+}
+
 /** Read-only assembly: never mutates the run dir. Re-verifies custody live. */
 export async function loadCase(runDir: string): Promise<CaseView> {
   const validation = await validateRun(runDir)
