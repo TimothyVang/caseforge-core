@@ -1,6 +1,7 @@
 //! caseforge-fleet — DFIR investigation multiplexer (clean-room, herdr-inspired).
 //! Interactive at a TTY; static status scan when piped (keeps CI/tests headless).
 
+mod attach;
 mod fleet;
 mod launch;
 mod session;
@@ -140,6 +141,10 @@ fn main() -> io::Result<()> {
     while let Some(a) = it.next() {
         if a == "--socket" {
             socket_path = it.next().map(PathBuf::from);
+        } else if a == "--attach" {
+            if let Some(sp) = it.next() {
+                return attach::run_attached(Path::new(&sp));
+            }
         } else {
             dirs.push(PathBuf::from(a));
         }
