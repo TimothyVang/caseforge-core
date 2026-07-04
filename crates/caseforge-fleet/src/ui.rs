@@ -9,6 +9,9 @@ use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
+/// Left (grid) pane width as a percent of the terminal; on_mouse mirrors this.
+pub const LEFT_PANE_PCT: u16 = 54;
+
 const LILAC: Color = Color::Rgb(184, 168, 255);
 const SEAFOAM: Color = Color::Rgb(115, 217, 194);
 const BUTTER: Color = Color::Rgb(255, 215, 106);
@@ -119,7 +122,7 @@ fn list_lines(st: &FleetState) -> Vec<Line<'static>> {
         lines.push(Line::from(Span::styled("enter launch \u{b7} esc cancel", dim)));
     } else {
         lines.push(Line::from(Span::styled(
-            "\u{2191}\u{2193} move \u{b7} tab filter \u{b7} enter attach \u{b7} n launch \u{b7} o viewer \u{b7} q quit",
+            "\u{2191}\u{2193} move \u{b7} tab \u{b7} enter \u{b7} n launch \u{b7} o view \u{b7} q",
             dim,
         )));
     }
@@ -136,7 +139,7 @@ pub fn render(f: &mut Frame, st: &FleetState) {
         View::List => {
             let cols = Layout::default()
                 .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(46), Constraint::Percentage(54)])
+                .constraints([Constraint::Percentage(LEFT_PANE_PCT), Constraint::Percentage(100 - LEFT_PANE_PCT)])
                 .split(f.area());
             f.render_widget(Paragraph::new(list_lines(st)), cols[0]);
             let right = Paragraph::new(detail_lines(st)).block(
@@ -203,7 +206,7 @@ fn detail_lines(st: &FleetState) -> Vec<Line<'static>> {
             let seq = rec.seq.map(|n| n.to_string()).unwrap_or_else(|| "?".into());
             lines.push(Line::from(vec![
                 Span::styled(format!("  #{:<3}", seq), dim),
-                Span::styled(format!("{:<22}", rec.kind), Style::default()),
+                Span::styled(format!("{:<18}", rec.kind), Style::default()),
                 Span::styled(rec.ts, dim),
             ]));
         }

@@ -117,7 +117,7 @@ impl FleetState {
     pub fn on_mouse(&mut self, col: u16, row: u16, total_cols: u16) {
         // grid + tab bar live in the left pane (~46% of the width); ignore clicks
         // that land in the right detail pane so they don't mis-select a row.
-        let left = total_cols.saturating_mul(46) / 100;
+        let left = total_cols.saturating_mul(crate::ui::LEFT_PANE_PCT) / 100;
         if col >= left {
             return;
         }
