@@ -18,6 +18,18 @@ const BUTTER: Color = Color::Rgb(255, 215, 106);
 const COBALT: Color = Color::Rgb(120, 140, 255);
 const CORAL: Color = Color::Rgb(255, 98, 87);
 
+fn humanize_age(secs: u64) -> String {
+    if secs < 60 {
+        format!("{secs}s")
+    } else if secs < 3600 {
+        format!("{}m", secs / 60)
+    } else if secs < 86_400 {
+        format!("{}h {}m", secs / 3600, (secs % 3600) / 60)
+    } else {
+        format!("{}d {}h", secs / 86_400, (secs % 86_400) / 3600)
+    }
+}
+
 fn dot_color(state: RunState) -> Color {
     match state {
         RunState::Blocked => CORAL,
@@ -180,7 +192,7 @@ fn detail_lines(st: &FleetState) -> Vec<Line<'static>> {
         ]),
         Line::from(Span::styled(
             match (&s.last_kind, s.age_secs) {
-                (Some(k), Some(a)) => format!("last: {k} \u{b7} {a}s ago"),
+                (Some(k), Some(a)) => format!("last: {k} \u{b7} {} ago", humanize_age(a)),
                 (Some(k), None) => format!("last: {k}"),
                 _ => "no audit records".to_string(),
             },
