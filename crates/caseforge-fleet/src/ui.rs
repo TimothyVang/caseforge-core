@@ -1,7 +1,7 @@
 //! ratatui render for the fleet grid. Pure: (state) -> widgets. Snapshot-testable
 //! via TestBackend so the render itself is verified, not just the model.
 
-use crate::fleet::{FleetState, View};
+use crate::fleet::{FleetState, Tab, View};
 use crate::status::{Custody, RunState, Status};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -76,24 +76,38 @@ fn row(i: usize, s: &Status, sel: bool, st_state: RunState) -> Line<'static> {
 
 fn list_lines(st: &FleetState) -> Vec<Line<'static>> {
     let dim = Style::default().add_modifier(Modifier::DIM);
+    let vis = st.visible();
+    let mut tabs: Vec<Span> = Vec::new();
+    for t in Tab::order() {
+        let on = t == st.tab;
+        tabs.push(Span::styled(
+            format!(" {} ", t.label()),
+            if on {
+                Style::default()
+                    .fg(LILAC)
+                    .add_modifier(Modifier::BOLD | Modifier::REVERSED)
+            } else {
+                dim
+            },
+        ));
+    }
     let mut lines: Vec<Line> = vec![
         Line::from(vec![
             Span::styled(
                 "FLEET \u{b7} caseforge",
                 Style::default().fg(LILAC).add_modifier(Modifier::BOLD),
             ),
-            Span::styled(
-                format!("   {} investigations", st.entries.len()),
-                dim,
-            ),
+            Span::styled(format!("   {} shown", vis.len()), dim),
         ]),
+        Line::from(tabs),
         Line::from(""),
     ];
-    if st.entries.is_empty() {
-        lines.push(Line::from(Span::styled("  no investigations found", dim)));
+    if vis.is_empty() {
+        lines.push(Line::from(Span::styled("  (no investigations in this tab)", dim)));
     } else {
-        for (i, s) in st.entries.iter().enumerate() {
-            lines.push(row(i, s, i == st.cursor, st.effective_state(s)));
+        for (pos, &i) in vis.iter().enumerate() {
+            let s = &st.entries[i];
+            lines.push(row(pos, s, pos == st.cursor, st.effective_state(s)));
         }
     }
     lines.push(Line::from(""));
@@ -105,7 +119,7 @@ fn list_lines(st: &FleetState) -> Vec<Line<'static>> {
         lines.push(Line::from(Span::styled("enter launch \u{b7} esc cancel", dim)));
     } else {
         lines.push(Line::from(Span::styled(
-            "\u{2191}\u{2193} move \u{b7} enter attach \u{b7} n launch \u{b7} o open viewer \u{b7} q quit",
+            "\u{2191}\u{2193} move \u{b7} tab filter \u{b7} enter attach \u{b7} n launch \u{b7} o viewer \u{b7} q quit",
             dim,
         )));
     }
@@ -249,6 +263,19 @@ mod tests {
     }
 
     #[test]
+    fn tab_bar_renders_and_filters() {
+        let f = |n: &str| fixtures().join(n);
+        let mut st = FleetState::scan(&[f("sample-run"), f("custody-invalid-run")], 4_000_000_000);
+        let all = buffer_text(&st);
+        assert!(all.contains("all") && all.contains("issues"));
+        assert!(all.contains("sample-run"));
+        st.tab = Tab::Issues;
+        let issues = buffer_text(&st);
+        assert!(issues.contains("custody-invalid-run"));
+        assert!(!issues.contains("sample-run"));
+    }
+
+    #[test]
     fn input_prompt_renders() {
         let mut st = FleetState::scan(&[fixtures().join("sample-run")], 4_000_000_000);
         st.begin_input();
@@ -261,7 +288,7 @@ mod tests {
     #[test]
     fn empty_fleet_degrades() {
         let st = FleetState::scan(&[], 0);
-        assert!(buffer_text(&st).contains("no investigations found"));
+        assert!(buffer_text(&st).contains("no investigations"));
     }
 
     #[test]

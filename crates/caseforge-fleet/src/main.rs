@@ -35,6 +35,7 @@ fn map_key(code: KeyCode) -> Key {
         KeyCode::Up | KeyCode::Char('k') => Key::Up,
         KeyCode::Down | KeyCode::Char('j') => Key::Down,
         KeyCode::Enter => Key::Enter,
+        KeyCode::Tab => Key::Tab,
         KeyCode::Char('o') => Key::Open,
         KeyCode::Char('q') | KeyCode::Esc => Key::Back,
         _ => Key::Other,

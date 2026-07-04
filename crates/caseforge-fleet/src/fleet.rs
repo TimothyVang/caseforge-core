@@ -13,6 +13,7 @@ pub enum Key {
     Enter,
     Open,
     Back,
+    Tab,
     Quit,
     Other,
 }
@@ -23,6 +24,37 @@ pub enum View {
     Detail,
 }
 
+/// Filter tabs over the fleet (herdr-style tabs, DFIR-flavored).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tab {
+    All,
+    Active,
+    Done,
+    Issues,
+}
+
+impl Tab {
+    pub fn label(self) -> &'static str {
+        match self {
+            Tab::All => "all",
+            Tab::Active => "active",
+            Tab::Done => "done",
+            Tab::Issues => "issues",
+        }
+    }
+    pub fn order() -> [Tab; 4] {
+        [Tab::All, Tab::Active, Tab::Done, Tab::Issues]
+    }
+    pub fn next(self) -> Tab {
+        match self {
+            Tab::All => Tab::Active,
+            Tab::Active => Tab::Done,
+            Tab::Done => Tab::Issues,
+            Tab::Issues => Tab::All,
+        }
+    }
+}
+
 pub struct FleetState {
     pub entries: Vec<Status>,
     /// Live launched investigations, keyed by their run dir. Present => attach
@@ -30,6 +62,7 @@ pub struct FleetState {
     pub sessions: HashMap<PathBuf, Session>,
     pub cursor: usize,
     pub view: View,
+    pub tab: Tab,
     pub pending_open: bool,
     /// Some(buffer) => the launch input prompt is active.
     pub input: Option<String>,
@@ -39,7 +72,7 @@ pub struct FleetState {
 impl FleetState {
     pub fn scan(dirs: &[PathBuf], now_secs: u64) -> Self {
         let entries = dirs.iter().map(|d| derive_status(d, now_secs)).collect();
-        FleetState { entries, sessions: HashMap::new(), cursor: 0, view: View::List, pending_open: false, input: None, quit: false }
+        FleetState { entries, sessions: HashMap::new(), cursor: 0, view: View::List, tab: Tab::All, pending_open: false, input: None, quit: false }
     }
 
     /// Re-derive every investigation's status (called on the live-refresh tick).
@@ -95,8 +128,27 @@ impl FleetState {
         }
     }
 
+    /// Entry indices matching the active tab (its effective state).
+    pub fn visible(&self) -> Vec<usize> {
+        use crate::status::{Custody, RunState};
+        self.entries
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| {
+                let est = self.effective_state(s);
+                match self.tab {
+                    Tab::All => true,
+                    Tab::Active => matches!(est, RunState::Working | RunState::Blocked),
+                    Tab::Done => est == RunState::Done,
+                    Tab::Issues => s.custody == Custody::CustodyInvalid || est == RunState::Blocked,
+                }
+            })
+            .map(|(i, _)| i)
+            .collect()
+    }
+
     pub fn selected(&self) -> Option<&Status> {
-        self.entries.get(self.cursor)
+        self.visible().get(self.cursor).and_then(|&i| self.entries.get(i))
     }
 
     /// Pure navigation. Returns the same-shaped state (mutated in place).
@@ -105,13 +157,19 @@ impl FleetState {
             self.quit = true;
             return;
         }
-        if self.entries.is_empty() {
+        if key == Key::Tab {
+            self.tab = self.tab.next();
+            self.cursor = 0;
+            return;
+        }
+        let vis = self.visible();
+        if vis.is_empty() {
             if key == Key::Back {
                 self.quit = true;
             }
             return;
         }
-        let last = self.entries.len() - 1;
+        let last = vis.len() - 1;
         match (self.view, key) {
             (View::List, Key::Up) => self.cursor = self.cursor.saturating_sub(1),
             (View::List, Key::Down) => self.cursor = (self.cursor + 1).min(last),
@@ -136,6 +194,7 @@ mod tests {
             sessions: std::collections::HashMap::new(),
             cursor: 0,
             view: View::List,
+            tab: Tab::All,
             pending_open: false,
             input: None,
             quit: false,
@@ -152,6 +211,21 @@ mod tests {
         s.on_key(Key::Down);
         s.on_key(Key::Down); // clamp at last
         assert_eq!(s.cursor, 2);
+    }
+
+    #[test]
+    fn tabs_filter_visible() {
+        use crate::status::derive_status;
+        let f = |n:&str| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/synthetic").join(n);
+        let mut st = FleetState::scan(&[f("sample-run"), f("custody-invalid-run")], 4_000_000_000);
+        let _ = derive_status(&f("sample-run"), 0);
+        assert_eq!(st.visible().len(), 2); // All
+        st.tab = Tab::Issues;
+        let vis = st.visible();
+        assert_eq!(vis.len(), 1); // only custody-invalid
+        assert!(st.entries[vis[0]].dir.ends_with("custody-invalid-run"));
+        st.tab = Tab::Active;
+        assert_eq!(st.visible().len(), 0); // fixtures are all done
     }
 
     #[test]
