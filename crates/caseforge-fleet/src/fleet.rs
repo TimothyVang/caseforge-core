@@ -82,6 +82,29 @@ impl FleetState {
         }
     }
 
+    /// Handle a left-click at (col,row) in the left pane. Layout: row 1 = tab bar,
+    /// rows >= 3 = investigation rows (pos = row-3). Clicks switch tab or select.
+    pub fn on_mouse(&mut self, col: u16, row: u16) {
+        if row == 1 {
+            let mut x: u16 = 0;
+            for t in Tab::order() {
+                let w = t.label().len() as u16 + 2; // " label "
+                if col >= x && col < x + w {
+                    self.tab = t;
+                    self.cursor = 0;
+                    return;
+                }
+                x += w;
+            }
+        } else if row >= 3 {
+            let pos = (row - 3) as usize;
+            if pos < self.visible().len() {
+                self.cursor = pos;
+                self.view = View::List;
+            }
+        }
+    }
+
     /// Launch an investigation as a live PTY session tracked under `run_dir`.
     pub fn launch(&mut self, run_dir: PathBuf, program: &str, args: &[String]) -> anyhow::Result<()> {
         let sess = Session::spawn(program, args)?;
@@ -226,6 +249,17 @@ mod tests {
         assert!(st.entries[vis[0]].dir.ends_with("custody-invalid-run"));
         st.tab = Tab::Active;
         assert_eq!(st.visible().len(), 0); // fixtures are all done
+    }
+
+    #[test]
+    fn mouse_selects_row_and_tab() {
+        let f = |n:&str| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/synthetic").join(n);
+        let mut st = FleetState::scan(&[f("sample-run"), f("custody-invalid-run")], 4_000_000_000);
+        st.on_mouse(3, 4); // row 4 -> pos 1
+        assert_eq!(st.cursor, 1);
+        st.on_mouse(21, 1); // 'issues' tab region (>=19)
+        assert_eq!(st.tab, Tab::Issues);
+        assert_eq!(st.cursor, 0);
     }
 
     #[test]

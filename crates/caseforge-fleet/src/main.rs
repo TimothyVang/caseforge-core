@@ -16,7 +16,10 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ratatui::backend::CrosstermBackend;
-use ratatui::crossterm::event::{self, Event, KeyCode, KeyModifiers};
+use ratatui::crossterm::event::{
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers, MouseButton,
+    MouseEventKind,
+};
 use ratatui::crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
@@ -45,7 +48,7 @@ fn map_key(code: KeyCode) -> Key {
 fn run_interactive(shared: socket::Shared) -> io::Result<()> {
     enable_raw_mode()?;
     let mut out = io::stdout();
-    execute!(out, EnterAlternateScreen, cursor::Hide)?;
+    execute!(out, EnterAlternateScreen, EnableMouseCapture, cursor::Hide)?;
     let mut term = Terminal::new(CrosstermBackend::new(out))?;
     let res = (|| -> io::Result<()> {
         loop {
@@ -54,7 +57,13 @@ fn run_interactive(shared: socket::Shared) -> io::Result<()> {
                 term.draw(|f| ui::render(f, &st))?;
             }
             if event::poll(Duration::from_millis(1000))? {
-                if let Event::Key(k) = event::read()? {
+                let ev = event::read()?;
+                if let Event::Mouse(m) = ev {
+                    if matches!(m.kind, MouseEventKind::Down(MouseButton::Left)) {
+                        shared.lock().unwrap().on_mouse(m.column, m.row);
+                    }
+                }
+                if let Event::Key(k) = ev {
                     let mut open_dir: Option<PathBuf> = None;
                     let quit;
                     {
@@ -106,7 +115,7 @@ fn run_interactive(shared: socket::Shared) -> io::Result<()> {
         Ok(())
     })();
     disable_raw_mode()?;
-    execute!(term.backend_mut(), LeaveAlternateScreen, cursor::Show)?;
+    execute!(term.backend_mut(), LeaveAlternateScreen, DisableMouseCapture, cursor::Show)?;
     res
 }
 
