@@ -18,6 +18,7 @@ pub enum RunState {
 /// Custody verdict for the run, independent of liveness.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Custody {
+    #[allow(dead_code)] // defensive default
     Unknown,
     Incomplete,     // missing the hard custody files
     CustodyInvalid, // present but the seal does not verify

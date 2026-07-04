@@ -96,10 +96,18 @@ fn render_list(f: &mut Frame, st: &FleetState) {
         }
     }
     lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
-        "\u{2191}\u{2193} move \u{b7} enter attach \u{b7} o open viewer \u{b7} q quit",
-        dim,
-    )));
+    if let Some(buf) = &st.input {
+        lines.push(Line::from(vec![
+            Span::styled("launch investigation: ", Style::default().fg(BUTTER)),
+            Span::styled(format!("{buf}\u{2588}"), Style::default()),
+        ]));
+        lines.push(Line::from(Span::styled("enter launch \u{b7} esc cancel", dim)));
+    } else {
+        lines.push(Line::from(Span::styled(
+            "\u{2191}\u{2193} move \u{b7} enter attach \u{b7} n launch \u{b7} o open viewer \u{b7} q quit",
+            dim,
+        )));
+    }
     f.render_widget(Paragraph::new(lines), f.area());
 }
 
@@ -131,6 +139,14 @@ fn render_detail(f: &mut Frame, st: &FleetState) {
             custody_span(s.custody),
             Span::styled(format!("  {} records", s.audit_records), dim),
         ]),
+        Line::from(Span::styled(
+            match (&s.last_kind, s.age_secs) {
+                (Some(k), Some(a)) => format!("last: {k} \u{b7} {a}s ago"),
+                (Some(k), None) => format!("last: {k}"),
+                _ => "no audit records".to_string(),
+            },
+            dim,
+        )),
         Line::from(""),
         Line::from(Span::styled(
             "AUDIT TAIL",
@@ -208,6 +224,16 @@ mod tests {
         assert!(text.contains("custody-invalid"), "invalid custody shown");
         assert!(text.contains("done"), "state shown");
         assert!(text.contains("\u{25b6}"), "cursor arrow present");
+    }
+
+    #[test]
+    fn input_prompt_renders() {
+        let mut st = FleetState::scan(&[fixtures().join("sample-run")], 4_000_000_000);
+        st.begin_input();
+        st.input_push('a'); st.input_push('.'); st.input_push('E');
+        let text = buffer_text(&st);
+        assert!(text.contains("launch investigation"));
+        assert!(text.contains("a.E"));
     }
 
     #[test]

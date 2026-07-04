@@ -49,22 +49,40 @@ fn run_interactive(mut st: FleetState) -> io::Result<()> {
             term.draw(|f| ui::render(f, &st))?;
             if event::poll(Duration::from_millis(1000))? {
                 if let Event::Key(k) = event::read()? {
-                    let key = if k.modifiers.contains(KeyModifiers::CONTROL)
+                    if st.input.is_some() {
+                        match k.code {
+                            KeyCode::Char(c) => st.input_push(c),
+                            KeyCode::Backspace => st.input_backspace(),
+                            KeyCode::Esc => st.cancel_input(),
+                            KeyCode::Enter => {
+                                if let Some(ev) = st.take_input() {
+                                    let workdir = std::env::var("FLEET_WORKDIR")
+                                        .map(PathBuf::from)
+                                        .unwrap_or_else(|_| std::env::temp_dir().join("caseforge-fleet"));
+                                    let cmd = std::env::var("CASEFORGE_CMD")
+                                        .unwrap_or_else(|_| "caseforge".to_string());
+                                    let _ = st.launch_investigation(&ev, &workdir, &cmd);
+                                }
+                            }
+                            _ => {}
+                        }
+                    } else if k.modifiers.contains(KeyModifiers::CONTROL)
                         && matches!(k.code, KeyCode::Char('c'))
                     {
-                        Key::Quit
+                        st.quit = true;
+                    } else if matches!(k.code, KeyCode::Char('n')) {
+                        st.begin_input();
                     } else {
-                        map_key(k.code)
-                    };
-                    st.on_key(key);
+                        st.on_key(map_key(k.code));
+                        if st.pending_open {
+                            st.pending_open = false;
+                            if let Some(dir) = st.selected().map(|s| s.dir.clone()) {
+                                open_viewer(&mut term, &dir)?;
+                            }
+                        }
+                    }
                     if st.quit {
                         break;
-                    }
-                    if st.pending_open {
-                        st.pending_open = false;
-                        if let Some(dir) = st.selected().map(|s| s.dir.clone()) {
-                            open_viewer(&mut term, &dir)?;
-                        }
                     }
                 }
             } else {

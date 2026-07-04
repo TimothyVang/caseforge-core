@@ -56,6 +56,7 @@ impl Session {
         lines[start..].iter().map(|s| s.to_string()).collect()
     }
 
+    #[allow(dead_code)] // liveness check for the live-refresh slice
     pub fn is_running(&mut self) -> bool {
         matches!(self.child.try_wait(), Ok(None))
     }

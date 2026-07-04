@@ -31,13 +31,15 @@ pub struct FleetState {
     pub cursor: usize,
     pub view: View,
     pub pending_open: bool,
+    /// Some(buffer) => the launch input prompt is active.
+    pub input: Option<String>,
     pub quit: bool,
 }
 
 impl FleetState {
     pub fn scan(dirs: &[PathBuf], now_secs: u64) -> Self {
         let entries = dirs.iter().map(|d| derive_status(d, now_secs)).collect();
-        FleetState { entries, sessions: HashMap::new(), cursor: 0, view: View::List, pending_open: false, quit: false }
+        FleetState { entries, sessions: HashMap::new(), cursor: 0, view: View::List, pending_open: false, input: None, quit: false }
     }
 
     /// Re-derive every investigation's status (called on the live-refresh tick).
@@ -55,6 +57,28 @@ impl FleetState {
         }
         self.sessions.insert(run_dir, sess);
         Ok(())
+    }
+
+    pub fn begin_input(&mut self) { self.input = Some(String::new()); }
+    pub fn cancel_input(&mut self) { self.input = None; }
+    pub fn input_push(&mut self, c: char) {
+        if let Some(b) = self.input.as_mut() { b.push(c); }
+    }
+    pub fn input_backspace(&mut self) {
+        if let Some(b) = self.input.as_mut() { b.pop(); }
+    }
+    /// Take + clear the input buffer (on Enter).
+    pub fn take_input(&mut self) -> Option<String> {
+        self.input.take().filter(|b| !b.trim().is_empty())
+    }
+
+    /// Launch `evidence` under `workdir` via `cmd investigate ... --run-dir`.
+    pub fn launch_investigation(&mut self, evidence: &str, workdir: &Path, cmd: &str) -> anyhow::Result<()> {
+        let base = Path::new(evidence).file_name().and_then(|s| s.to_str()).unwrap_or("case");
+        let run_dir = workdir.join(format!("{base}-run"));
+        std::fs::create_dir_all(&run_dir).ok();
+        let args = crate::launch::investigate_launch_args(evidence, &run_dir, &[]);
+        self.launch(run_dir, cmd, &args)
     }
 
     /// Live output tail for a launched investigation, if one is tracked.
@@ -113,6 +137,7 @@ mod tests {
             cursor: 0,
             view: View::List,
             pending_open: false,
+            input: None,
             quit: false,
         }
     }
@@ -144,6 +169,25 @@ mod tests {
         assert_eq!(s.view, View::Detail);
         s.on_key(Key::Back);
         assert_eq!(s.view, View::List);
+    }
+
+    #[test]
+    fn input_mode_edits_and_takes() {
+        let mut s = state(1);
+        assert!(s.input.is_none());
+        s.begin_input();
+        s.input_push('e'); s.input_push('v'); s.input_push('x');
+        s.input_backspace();
+        assert_eq!(s.input.as_deref(), Some("ev"));
+        assert_eq!(s.take_input().as_deref(), Some("ev"));
+        assert!(s.input.is_none());
+    }
+
+    #[test]
+    fn blank_input_is_discarded() {
+        let mut s = state(1);
+        s.begin_input();
+        assert_eq!(s.take_input(), None);
     }
 
     #[test]
