@@ -57,6 +57,14 @@ fn state_color(s: &str) -> Color {
         _ => Color::DarkGray,
     }
 }
+fn custody_label(c: &str) -> &str {
+    match c {
+        "Complete" => "complete",
+        "CustodyInvalid" => "custody-invalid",
+        "Incomplete" => "incomplete",
+        _ => "unknown",
+    }
+}
 fn custody_color(c: &str) -> Color {
     match c {
         "Complete" => SEAFOAM,
@@ -103,10 +111,15 @@ pub fn render_remote(f: &mut Frame, rows: &[RemoteRow], cursor: usize, sock: &st
                 format!("{:<8}", r.state.to_lowercase()),
                 if sel { Style::default().add_modifier(Modifier::BOLD) } else { Style::default() },
             ),
-            Span::styled(format!("{:<16}", r.custody), Style::default().fg(custody_color(&r.custody))),
+            Span::styled(format!("{:<16}", custody_label(&r.custody)), Style::default().fg(custody_color(&r.custody))),
             Span::styled(format!("{:<20} ", base(&r.dir)), dim),
             Span::styled(format!("{} rec", r.records), dim),
             live,
+            if r.custody == "CustodyInvalid" {
+                Span::styled(" \u{26a0}", Style::default().fg(CORAL))
+            } else {
+                Span::raw("")
+            },
         ]));
     }
     lines.push(Line::from(""));
