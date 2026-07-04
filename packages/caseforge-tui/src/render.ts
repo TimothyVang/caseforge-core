@@ -91,6 +91,16 @@ export function renderAudit(v: CaseView): string {
   return `${head}  ${DIM}${v.audit.length} records ·${RESET} ${chain}\n${tail.join("\n")}`
 }
 
+export function renderTimeline(v: CaseView): string {
+  const head = `${LILAC}${BOLD}TIMELINE${RESET}`
+  if (v.timeline.length === 0) return `${head}\n  ${NOT_PRODUCED}`
+  const rows = v.timeline
+    .slice(0, 8)
+    .map((e) => `  ${tierColor(e.confidence)}●${RESET} ${DIM}${e.ts ?? "?"}${RESET} ${BOLD}${e.technique ?? "-"}${RESET} ${(e.summary ?? "").slice(0, 48)}`)
+  const more = v.timeline.length > 8 ? `\n  ${DIM}… ${v.timeline.length - 8} more events${RESET}` : ""
+  return `${head}  ${DIM}${v.timeline.length} events${RESET}\n${rows.join("\n")}${more}`
+}
+
 export function renderScreen(v: CaseView): string {
-  return [renderHeader(v), renderFindings(v), renderCoverage(v), renderAudit(v)].join("\n\n")
+  return [renderHeader(v), renderFindings(v), renderTimeline(v), renderCoverage(v), renderAudit(v)].join("\n\n")
 }

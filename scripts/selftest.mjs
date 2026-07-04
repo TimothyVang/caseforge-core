@@ -107,6 +107,10 @@ console.log("tui workbench:")
   ok("tui: header renders verdict + dual custody lights", /SUSPICIOUS/.test(renderHeader(v)) && /re-verified now/.test(renderHeader(v)))
   ok("tui: findings render cited tool_call_id", /tc-1/.test(renderFindings(v)) && /cited/.test(renderFindings(v)))
   ok("tui: screen composes all panels", renderScreen(v).length > 200)
+  const vb = await loadCase(fileURLToPath(new URL("../fixtures/synthetic/broken-chain-run", import.meta.url)))
+  ok("tui: broken audit chain caught (chainOk false)", vb.chainOk === false)
+  const vn = await loadCase(fileURLToPath(new URL("../fixtures/synthetic/no-report-run", import.meta.url)))
+  ok("tui: missing verdict.json degrades but custody holds", vn.verdict === undefined && vn.validation.custodyValid === true)
 }
 
 console.log(`\n${pass} passed, ${fail} failed`)

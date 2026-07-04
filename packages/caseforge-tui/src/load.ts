@@ -11,6 +11,14 @@ export interface CoverageRow {
   supported?: boolean
 }
 
+export interface TimelineEvent {
+  ts?: string
+  confidence?: string
+  technique?: string
+  significance?: string
+  summary?: string
+}
+
 export interface AuditRecord {
   seq?: number
   kind?: string
@@ -27,6 +35,7 @@ export interface CaseView {
   custody: FindingsCustodyReport | undefined
   coverage: CoverageRow[]
   audit: AuditRecord[]
+  timeline: TimelineEvent[]
   chainOk: boolean
 }
 
@@ -52,6 +61,18 @@ function readCoverage(raw: unknown): CoverageRow[] {
       parsed: r.parsed as boolean | undefined,
       supported: r.supported as boolean | undefined,
     }))
+}
+
+function readTimeline(verdict: VerdictDoc | undefined): TimelineEvent[] {
+  const nt = (verdict?.["normalized_timeline"] ?? undefined) as Record<string, unknown> | undefined
+  const events = nt && Array.isArray(nt.events) ? (nt.events as Record<string, unknown>[]) : []
+  return events.map((e) => ({
+    ts: typeof e.timestamp_utc === "string" ? e.timestamp_utc : (typeof e.ts === "string" ? e.ts : undefined),
+    confidence: typeof e.confidence === "string" ? e.confidence : undefined,
+    technique: Array.isArray(e.attck_techniques) && typeof e.attck_techniques[0] === "string" ? e.attck_techniques[0] : undefined,
+    significance: typeof e.significance === "string" ? e.significance : undefined,
+    summary: typeof e.summary === "string" ? e.summary : undefined,
+  }))
 }
 
 async function readAudit(runDir: string): Promise<AuditRecord[]> {
@@ -109,5 +130,6 @@ export async function loadCase(runDir: string): Promise<CaseView> {
   const custody = verdict ? checkFindingsCustody(verdict) : undefined
   const coverage = readCoverage(await readJson(join(runDir, "coverage_manifest.json")))
   const audit = await readAudit(runDir)
-  return { runDir, validation, recordedManifestOverall, verdict, custody, coverage, audit, chainOk: chainStructurallyOk(audit) }
+  const timeline = readTimeline(verdict)
+  return { runDir, validation, recordedManifestOverall, verdict, custody, coverage, audit, timeline, chainOk: chainStructurallyOk(audit) }
 }

@@ -34,3 +34,26 @@ test("full screen composes all panels", async () => {
   const s = renderScreen(await loadCase(FIX))
   assert.ok(s.length > 200)
 })
+
+import { renderTimeline } from "../dist/src/render.js"
+const BROKEN = join(here, "..", "..", "..", "fixtures", "synthetic", "broken-chain-run")
+const NOREPORT = join(here, "..", "..", "..", "fixtures", "synthetic", "no-report-run")
+
+test("timeline panel renders events from normalized_timeline", async () => {
+  const v = await loadCase(FIX)
+  // sample-run has no normalized_timeline -> honest degrade
+  assert.match(renderTimeline(v), /TIMELINE/)
+  assert.match(renderTimeline(v), /not produced by this run/)
+})
+test("broken audit chain is caught by the structural check", async () => {
+  const v = await loadCase(BROKEN)
+  assert.equal(v.chainOk, false)
+  assert.match(renderAudit(v), /chain linkage BROKEN/)
+})
+test("missing verdict.json degrades honestly (not fabricated)", async () => {
+  const v = await loadCase(NOREPORT)
+  assert.equal(v.verdict, undefined)
+  assert.match(renderFindings(v), /not produced by this run/)
+  // custody still holds (sealed run)
+  assert.equal(v.validation.custodyValid, true)
+})
