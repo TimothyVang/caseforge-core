@@ -49,7 +49,7 @@ fn dir_name(s: &Status) -> String {
         .unwrap_or_else(|| s.dir.display().to_string())
 }
 
-fn row(i: usize, s: &Status, sel: bool) -> Line<'static> {
+fn row(i: usize, s: &Status, sel: bool, st_state: RunState) -> Line<'static> {
     let dim = Style::default().add_modifier(Modifier::DIM);
     let arrow = if sel {
         Span::styled("\u{25b6} ", Style::default().fg(LILAC))
@@ -64,8 +64,8 @@ fn row(i: usize, s: &Status, sel: bool) -> Line<'static> {
     Line::from(vec![
         arrow,
         Span::styled(format!("{:>2} ", i + 1), dim),
-        Span::styled("\u{25cf} ", Style::default().fg(dot_color(s.state))),
-        Span::styled(format!("{:<8}", state_label(s.state)), label_style),
+        Span::styled("\u{25cf} ", Style::default().fg(dot_color(st_state))),
+        Span::styled(format!("{:<8}", state_label(st_state)), label_style),
         Span::raw(" "),
         custody_span(s.custody),
         Span::raw(" "),
@@ -92,7 +92,7 @@ fn render_list(f: &mut Frame, st: &FleetState) {
         lines.push(Line::from(Span::styled("  no investigations found", dim)));
     } else {
         for (i, s) in st.entries.iter().enumerate() {
-            lines.push(row(i, s, i == st.cursor));
+            lines.push(row(i, s, i == st.cursor, st.effective_state(s)));
         }
     }
     lines.push(Line::from(""));
@@ -137,13 +137,24 @@ fn render_detail(f: &mut Frame, st: &FleetState) {
             Style::default().fg(LILAC).add_modifier(Modifier::BOLD),
         )),
     ];
-    for rec in crate::status::audit_tail(&s.dir, 14) {
-        let seq = rec.seq.map(|n| n.to_string()).unwrap_or_else(|| "?".into());
+    if let Some(out) = st.live_output(&s.dir, 16) {
+        lines.pop(); // replace the "AUDIT TAIL" header with a LIVE header
         lines.push(Line::from(vec![
-            Span::styled(format!("  #{:<3}", seq), dim),
-            Span::styled(format!("{:<22}", rec.kind), Style::default()),
-            Span::styled(rec.ts, dim),
+            Span::styled("LIVE OUTPUT", Style::default().fg(BUTTER).add_modifier(Modifier::BOLD)),
+            Span::styled("  \u{25cf} attached", Style::default().fg(BUTTER)),
         ]));
+        for l in out {
+            lines.push(Line::from(Span::styled(format!("  {}", l), Style::default())));
+        }
+    } else {
+        for rec in crate::status::audit_tail(&s.dir, 14) {
+            let seq = rec.seq.map(|n| n.to_string()).unwrap_or_else(|| "?".into());
+            lines.push(Line::from(vec![
+                Span::styled(format!("  #{:<3}", seq), dim),
+                Span::styled(format!("{:<22}", rec.kind), Style::default()),
+                Span::styled(rec.ts, dim),
+            ]));
+        }
     }
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
@@ -203,6 +214,19 @@ mod tests {
     fn empty_fleet_degrades() {
         let st = FleetState::scan(&[], 0);
         assert!(buffer_text(&st).contains("no investigations found"));
+    }
+
+    #[test]
+    fn detail_shows_live_output_for_a_session() {
+        let mut st = FleetState::scan(&[], 0);
+        st.launch(std::path::PathBuf::from("/tmp/cf-live-x"), "sh",
+            &["-c".into(), "printf 'RUNNING alpha beta\\n'".into()]).unwrap();
+        st.cursor = 0;
+        st.view = View::Detail;
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        let text = buffer_text(&st);
+        assert!(text.contains("LIVE OUTPUT"), "got: {text}");
+        assert!(text.contains("alpha"));
     }
 
     #[test]

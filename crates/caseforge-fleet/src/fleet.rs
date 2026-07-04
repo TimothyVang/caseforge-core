@@ -1,8 +1,10 @@
 //! Fleet model: a set of investigations + a cursor, with pure navigation.
 //! No I/O in the reducer, so keyboard navigation is fully unit-testable.
 
+use crate::session::Session;
 use crate::status::{derive_status, Status};
-use std::path::PathBuf;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Key {
@@ -23,6 +25,9 @@ pub enum View {
 
 pub struct FleetState {
     pub entries: Vec<Status>,
+    /// Live launched investigations, keyed by their run dir. Present => attach
+    /// shows live PTY output instead of the on-disk audit tail.
+    pub sessions: HashMap<PathBuf, Session>,
     pub cursor: usize,
     pub view: View,
     pub pending_open: bool,
@@ -32,13 +37,37 @@ pub struct FleetState {
 impl FleetState {
     pub fn scan(dirs: &[PathBuf], now_secs: u64) -> Self {
         let entries = dirs.iter().map(|d| derive_status(d, now_secs)).collect();
-        FleetState { entries, cursor: 0, view: View::List, pending_open: false, quit: false }
+        FleetState { entries, sessions: HashMap::new(), cursor: 0, view: View::List, pending_open: false, quit: false }
     }
 
     /// Re-derive every investigation's status (called on the live-refresh tick).
     pub fn refresh(&mut self, now_secs: u64) {
         for e in self.entries.iter_mut() {
             *e = derive_status(&e.dir, now_secs);
+        }
+    }
+
+    /// Launch an investigation as a live PTY session tracked under `run_dir`.
+    pub fn launch(&mut self, run_dir: PathBuf, program: &str, args: &[String]) -> anyhow::Result<()> {
+        let sess = Session::spawn(program, args)?;
+        if !self.entries.iter().any(|e| e.dir == run_dir) {
+            self.entries.push(derive_status(&run_dir, 0));
+        }
+        self.sessions.insert(run_dir, sess);
+        Ok(())
+    }
+
+    /// Live output tail for a launched investigation, if one is tracked.
+    pub fn live_output(&self, dir: &Path, n: usize) -> Option<Vec<String>> {
+        self.sessions.get(dir).map(|s| s.snapshot_tail(n))
+    }
+
+    /// A tracked-and-running session forces Working, else the on-disk state.
+    pub fn effective_state(&self, s: &Status) -> crate::status::RunState {
+        if self.sessions.contains_key(&s.dir) {
+            crate::status::RunState::Working
+        } else {
+            s.state
         }
     }
 
@@ -80,6 +109,7 @@ mod tests {
             entries: (0..n)
                 .map(|_| derive_status(&PathBuf::from("/nope"), 0))
                 .collect(),
+            sessions: std::collections::HashMap::new(),
             cursor: 0,
             view: View::List,
             pending_open: false,
