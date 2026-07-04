@@ -111,6 +111,10 @@ console.log("tui workbench:")
   ok("tui: broken audit chain caught (chainOk false)", vb.chainOk === false)
   const vn = await loadCase(fileURLToPath(new URL("../fixtures/synthetic/no-report-run", import.meta.url)))
   ok("tui: missing verdict.json degrades but custody holds", vn.verdict === undefined && vn.validation.custodyValid === true)
+  const { listRuns } = await import("../packages/caseforge-tui/dist/src/picker.js")
+  const { renderPicker } = await import("../packages/caseforge-tui/dist/src/render.js")
+  const runs = await listRuns([fileURLToPath(new URL("../fixtures/synthetic", import.meta.url))])
+  ok("tui: picker discovers runs with validated status", runs.length >= 3 && /CASES/.test(renderPicker(runs)))
 }
 
 console.log(`\n${pass} passed, ${fail} failed`)

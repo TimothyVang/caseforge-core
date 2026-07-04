@@ -1,5 +1,6 @@
 import type { CaseView, CoverageRow, AuditRecord } from "./load.js"
 import type { FindingCustody } from "@verdict/caseforge-sdk"
+import type { RunEntry } from "./picker.js"
 
 const RESET = "\x1b[0m"
 const BOLD = "\x1b[1m"
@@ -99,6 +100,16 @@ export function renderTimeline(v: CaseView): string {
     .map((e) => `  ${tierColor(e.confidence)}●${RESET} ${DIM}${e.ts ?? "?"}${RESET} ${BOLD}${e.technique ?? "-"}${RESET} ${(e.summary ?? "").slice(0, 48)}`)
   const more = v.timeline.length > 8 ? `\n  ${DIM}… ${v.timeline.length - 8} more events${RESET}` : ""
   return `${head}  ${DIM}${v.timeline.length} events${RESET}\n${rows.join("\n")}${more}`
+}
+
+export function renderPicker(entries: RunEntry[]): string {
+  const head = `${LILAC}${BOLD}CASES${RESET}`
+  if (entries.length === 0) return `${head}\n  ${DIM}no run directories found${RESET}`
+  const rows = entries.map((e, i) => {
+    const l = e.status === "complete" && e.custodyValid ? SEAFOAM : e.status === "custody-invalid" ? CORAL : BUTTER
+    return `  ${DIM}${String(i + 1).padStart(2)}${RESET} ${l}●${RESET} ${e.status.padEnd(16)} ${DIM}${e.dir}${RESET}`
+  })
+  return `${head}  ${DIM}${entries.length}${RESET}\n${rows.join("\n")}`
 }
 
 export function renderScreen(v: CaseView): string {

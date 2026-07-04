@@ -57,3 +57,16 @@ test("missing verdict.json degrades honestly (not fabricated)", async () => {
   // custody still holds (sealed run)
   assert.equal(v.validation.custodyValid, true)
 })
+
+import { listRuns as listRunsP } from "../dist/src/picker.js"
+import { renderPicker } from "../dist/src/render.js"
+const SYNTH_ROOT = join(here, "..", "..", "..", "fixtures", "synthetic")
+
+test("picker discovers the synthetic run dirs with statuses", async () => {
+  const runs = await listRunsP([SYNTH_ROOT])
+  assert.ok(runs.length >= 3, `expected >=3 runs, got ${runs.length}`)
+  assert.ok(runs.some((r) => r.status === "complete"))
+  const p = renderPicker(runs)
+  assert.match(p, /CASES/)
+  assert.match(p, /sample-run/)
+})
