@@ -96,6 +96,7 @@ caseforge-core/
 | `caseforge gateway start` | Start the universal LLM gateway. | Planned (Phase 3) |
 | `caseforge benchmark run` | Provider capability + benchmark tests. | Planned (Phase 14) |
 | `caseforge ocr <case-id>` | Route OCR for a case. | Planned (Phase 11) |
+| `caseforge fleet [run-dir ...]` | DFIR investigation multiplexer (Rust/ratatui): status grid, live-attach, socket API, detach/reattach. | Done (crates/caseforge-fleet) |
 | `caseforge ingest <evidence-path>` | Rust ingest core entrypoint. | Planned (Phase 12) |
 
 ## 6. Design Invariants

@@ -6,6 +6,7 @@
  *   caseforge models            [--privacy MODE] [--evidence CLASS]
  *   caseforge investigate <evidence-path> [--privacy MODE] [--evidence CLASS] [--route ID] [--command NAME]
  *   caseforge verify <run-dir>
+ *   caseforge fleet [run-dir ...] [--socket <path>] [--attach <path>]   (multiplexer)
  *   caseforge gateway start | benchmark run | ocr <case-id> | ingest <path>   (planned)
  */
 import type { EvidenceClass, PrivacyMode } from "@verdict/caseforge-sdk"
@@ -15,6 +16,7 @@ import { investigate } from "./commands/investigate.js"
 import { verify } from "./commands/verify.js"
 import { gatewayStart, benchmarkRun, ocr, ingest } from "./commands/stubs.js"
 import { launchTui } from "@verdict/caseforge-tui"
+import { fleet } from "./commands/fleet.js"
 
 interface Parsed {
   positionals: string[]
@@ -76,6 +78,8 @@ async function main(): Promise<number> {
       })
     case "tui":
       return await launchTui(positionals[1])
+    case "fleet":
+      return fleet(process.argv.slice(3))
     case "verify":
       return verify(rest)
     case "gateway":
