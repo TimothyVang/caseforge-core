@@ -29,6 +29,7 @@ export async function runInteractive(roots: string[]): Promise<number> {
   }
   const stdin = process.stdin
   if (stdin.isTTY) stdin.setRawMode(true)
+  process.stdout.write("\x1b[?25l") // hide cursor
   stdin.resume()
   stdin.setEncoding("utf8")
 
@@ -40,7 +41,7 @@ export async function runInteractive(roots: string[]): Promise<number> {
       if (stdin.isTTY) stdin.setRawMode(false)
       stdin.pause()
       stdin.off("data", onData)
-      process.stdout.write(CLEAR)
+      process.stdout.write("\x1b[?25h" + CLEAR) // restore cursor
     }
     const onData = (seq: string): void => {
       state = reduce(state, keyOf(seq), runs.length)

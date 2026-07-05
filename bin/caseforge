@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# caseforge — CLI wrapper. Runs the built CLI (builds it first if needed).
+# Put this on PATH (or `ln -s` it into ~/.local/bin) to use `caseforge` anywhere.
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CLI="$ROOT/packages/caseforge-cli/dist/src/cli.js"
+if [ ! -f "$CLI" ]; then
+  echo "[caseforge] building…" >&2
+  (cd "$ROOT" && npm run build >/dev/null 2>&1)
+fi
+exec node "$CLI" "$@"
