@@ -46,9 +46,10 @@ Implemented and tested (this build):
 - **Privacy-mode router** — `local-only` (default) / `redacted-cloud` / `cloud-ok`, fail-closed.
 - **Structured finding schema** — every finding cites ≥1 tool call; invalid findings rejected.
 - **VERDICT run-artifact + custody validator** — `verify` marks runs `complete` / `incomplete` / `custody-invalid`.
+- **Local route readiness** — vLLM/Ollama/Spark routes are registered and checked by selected-route doctor; live local investigations require a running endpoint.
 - **CLI** — `doctor`, `models`, `investigate`, `verify`. Fixture-only GitHub workflow.
 
-Planned / stubbed (see [`docs/BUILD_ORDER.md`](docs/BUILD_ORDER.md)): LiteLLM universal gateway (Phase 3), vLLM/OpenRouter/Z.AI routes (4–5), OCR router (11), Rust ingest core (12–13), benchmarks (14).
+Planned / stubbed (see [`docs/BUILD_ORDER.md`](docs/BUILD_ORDER.md)): LiteLLM universal gateway (Phase 3), OpenRouter/Z.AI route hardening (5), OCR router (11), Rust ingest core (12–13), benchmarks (14).
 
 ## CLI
 
@@ -101,7 +102,7 @@ Manual:
 ```bash
 npm install && npm run build
 export VERDICT_DFIR_HOME=~/verdict-dfir-community      # toolkit with the MCP servers
-node scripts/selftest.mjs                              # 17 model-independent guarantees
+node scripts/selftest.mjs                              # model-independent guarantees
 node packages/caseforge-cli/dist/src/cli.js doctor
 
 # synthetic fixture, cloud-ok (needs an authed cloud provider), NOT sensitive:
