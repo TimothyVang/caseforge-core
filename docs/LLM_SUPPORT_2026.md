@@ -6,10 +6,13 @@
 
 ## 1. Support Status
 
-The universal LLM gateway (LiteLLM, Phase 3) and the concrete local/cloud routes
-(Phases 4–5) are **planned/stubbed** in the current increment. The provider list
-below is the intended support surface. The privacy-mode router (Phase 6) that
-governs all of them is implemented.
+The universal LLM gateway (LiteLLM, Phase 3) and cloud-route hardening (Phase 5)
+are **planned/stubbed** in the current increment. Concrete local route readiness
+for vLLM/Ollama/Spark is implemented: routes are registered and selected-route
+doctor checks whether endpoints are reachable. Live local investigations still
+require a running strong tool-calling endpoint. The provider list below is the
+intended support surface. The privacy-mode router (Phase 6) that governs all of
+them is implemented.
 
 ## 2. Local / Offline Providers
 
