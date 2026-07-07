@@ -25,9 +25,9 @@ SELF="$(resolve_self)"
 BIN_DIR="$(cd "$(dirname "$SELF")" && pwd)"   # <umbrella>/caseforge/bin
 ROOT="$(cd "$BIN_DIR/.." && pwd)"             # <umbrella>/caseforge
 
-# No subcommand → drop into the interactive agent TUI, just like opencode.
+# No subcommand → drop into the locked VERDICT agent TUI, just like opencode.
 if [ "$#" -eq 0 ]; then
-  exec "$BIN_DIR/verdict"
+  exec "$BIN_DIR/verdict" --agent verdict
 fi
 
 # Otherwise run the built controller CLI (build it first if needed).

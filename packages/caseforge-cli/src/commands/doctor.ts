@@ -3,7 +3,7 @@ import { existsSync } from "node:fs"
 import { join } from "node:path"
 import { execFileSync } from "node:child_process"
 import { DEFAULT_PRIVACY_MODE } from "@verdict/caseforge-sdk"
-import { chatGptOAuthStatus } from "../chatgpt-auth.js"
+import { chatGptOAuthStatus, verdictLauncherPath } from "../chatgpt-auth.js"
 import { configsDir, loadRoutes, loadRoutingPolicy, opencodeProfileDir, routeLocation, routeRequiresChatGptOAuth } from "../config.js"
 
 export interface DoctorOpts {
@@ -52,7 +52,8 @@ export async function doctor(opts: DoctorOpts = {}): Promise<number> {
   console.log(`privacy default: ${DEFAULT_PRIVACY_MODE} (real evidence stays local unless overridden)\n`)
 
   // agent runtime
-  has(process.env.VERDICT_BIN ?? "verdict") ? ok("verdict binary on PATH") : miss("verdict binary not on PATH (build verdict-opencode)")
+  const verdictBin = verdictLauncherPath()
+  existsSync(verdictBin) ? ok(`verdict launcher: ${verdictBin}`) : miss(`verdict launcher missing: ${verdictBin}`)
 
   // locked opencode profile
   existsSync(join(opencodeProfileDir(), "opencode.json"))
