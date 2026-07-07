@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { execFileSync } from "node:child_process"
 import { DEFAULT_PRIVACY_MODE } from "@verdict/caseforge-sdk"
 import { chatGptOAuthStatus, verdictLauncherPath } from "../chatgpt-auth.js"
-import { configsDir, loadRoutes, loadRoutingPolicy, opencodeProfileDir, routeLocation, routeRequiresChatGptOAuth } from "../config.js"
+import { configsDir, loadRoutes, loadRoutingPolicy, opencodeProfileDir, routeLocation, routeRequiresChatGptOAuth, type RouteConfig } from "../config.js"
 
 export interface DoctorOpts {
   route?: string
@@ -33,6 +33,11 @@ async function reachable(baseUrl: string): Promise<boolean> {
     }
   }
   return false
+}
+
+export function selectedLocalEndpoint(route: RouteConfig, env: NodeJS.ProcessEnv = process.env): string | undefined {
+  if (routeLocation(route) !== "local") return undefined
+  return env.VERDICT_LLM_BASEURL ?? route.base_url ?? "http://localhost:11434/v1"
 }
 
 export async function doctor(opts: DoctorOpts = {}): Promise<number> {
@@ -84,8 +89,9 @@ export async function doctor(opts: DoctorOpts = {}): Promise<number> {
       miss(`selected route '${selected}' not found in configs/model-routes.yaml`)
     } else {
       ok(`selected route: ${selected}`)
-      if (routeLocation(route) === "local" && route.base_url) {
-        ;(await reachable(route.base_url)) ? ok(`selected local endpoint reachable (${route.base_url})`) : miss(`selected local endpoint down (${route.base_url})`)
+      const endpoint = selectedLocalEndpoint(route)
+      if (endpoint) {
+        ;(await reachable(endpoint)) ? ok(`selected local endpoint reachable (${endpoint})`) : miss(`selected local endpoint down (${endpoint})`)
       }
       if (routeRequiresChatGptOAuth(route)) {
         const status = chatGptOAuthStatus()
