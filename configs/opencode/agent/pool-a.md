@@ -12,7 +12,11 @@ permission:
   webfetch: deny
   websearch: deny
   lsp: deny
-  mcp_*: allow
+  task: deny
+  skill: deny
+  todowrite: deny
+  "findevil-mcp_*": allow
+  "findevil-agent-mcp_*": allow
 ---
 
 # Pool A — Persistence-Biased

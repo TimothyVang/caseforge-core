@@ -19,7 +19,7 @@ for full conventions.)
 - **Real evidence stays local by default** (`local-only`); cloud only for synthetic/public/approved/redacted.
 
 ## Working here
-- Build: `npm run build` (root — SDK then CLI, order matters). Verify: `node scripts/selftest.mjs` (17 checks).
+- Build: `npm run build` (root — SDK then CLI, order matters). Verify: `node scripts/selftest.mjs` (model-independent checks).
 - Layout: `packages/caseforge-sdk` (controller+privacy+findings+custody), `packages/caseforge-cli` (`doctor/models/investigate/verify`), `configs/opencode` (DFIR profile), `docs/`.
 - Don't fold in `verdict-opencode` (consumed as the `verdict` binary) or the toolkit (referenced via `VERDICT_DFIR_HOME`).
 - CI runs against **synthetic fixtures only** — never real evidence.

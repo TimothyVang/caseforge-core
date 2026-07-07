@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # verdict — launch the external VERDICT agent runtime with CaseForge's locked
-# opencode profile. Typing `verdict` drops you into the interactive agent TUI,
-# exactly like upstream `opencode`. Every argument is passed straight through to
-# the runtime (`verdict run ...`, `verdict auth`, etc).
+# opencode profile. Typing `verdict` drops you into the interactive agent TUI.
+# Every argument is passed straight through to the external VERDICT runtime
+# (`verdict run ...`, `verdict auth`, etc).
 #
 # Path-agnostic: resolve this launcher and config from the script path, then
-# delegate to $VERDICT_BIN or an external `verdict` already on PATH.
+# delegate to $VERDICT_BIN or an external `verdict`.
 set -euo pipefail
 
 resolve_path() {
@@ -58,7 +58,7 @@ BIN="$(runtime_bin || true)"
 
 if [ -z "$BIN" ] || [ ! -x "$BIN" ]; then
   echo "[verdict] external VERDICT runtime not found." >&2
-  echo "[verdict] set VERDICT_BIN=/path/to/verdict or install verdict-opencode's verdict binary on PATH." >&2
+  echo "[verdict] set VERDICT_BIN=/path/to/verdict or install verdict on PATH." >&2
   exit 1
 fi
 

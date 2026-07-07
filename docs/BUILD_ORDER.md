@@ -1,7 +1,8 @@
 # Build Order — caseforge-core
 
 > Phases 0–14. Status reflects the current build increment. The MVP core is
-> Phases 0–2 (partial), 6, 7, 8, 9, 10. Everything else is planned/stubbed.
+> Phases 0–2 (partial), 4 (route readiness), 6, 7, 8, 9, 10. Everything else
+> is planned/stubbed.
 
 ## Status Legend
 
@@ -17,7 +18,7 @@
 - [~] **Phase 1 — Wire OpenCode SDK.** OpenCode controller with locked config, agent loop entry. **(Partial)**
 - [~] **Phase 2 — Wire VERDICT MCP commands.** Load `findevil-mcp` (32 Rust read-only tools) + `findevil-agent-mcp` (14 Python crypto/custody/reasoning tools). **(Partial)**
 - [ ] **Phase 3 — LiteLLM universal gateway.** Single gateway fronting local + cloud providers. **(Planned)**
-- [ ] **Phase 4 — Local vLLM + Ollama routes.** Register local serving backends. **(Planned)**
+- [~] **Phase 4 — Local vLLM + Ollama route readiness.** Registered local serving backends with selected-route doctor/readiness; live use requires a running endpoint. **(Partial)**
 - [ ] **Phase 5 — OpenRouter + direct Z.AI routes.** Add these cloud/API routes. **(Planned)**
 - [x] **Phase 6 — Enforce privacy-mode routing.** `local-only` / `redacted-cloud` / `cloud-ok`, fail-closed. **(Done — MVP core)**
 - [x] **Phase 7 — Structured finding schema.** Canonical JSON schema for findings. **(Done — MVP core)**
@@ -33,16 +34,19 @@
 
 The current increment delivers the SDK controller + privacy router + finding
 schema + artifact/custody validator + CLI (`doctor`, `models`, `investigate`,
-`verify`) + the fixtures workflow. That is Phases 0–2 (partial), 6, 7, 8, 9, 10.
+`verify`) + the fixtures workflow. That is Phases 0–2 (partial), 4 (route
+readiness), 6, 7, 8, 9, 10.
 
-Honesty note: Phases 3–5 (LiteLLM gateway, vLLM/OpenRouter/Z.AI routes), 11
-(OCR), 12–13 (Rust ingest), and 14 (benchmarks) are **not yet implemented**.
-Where the CLI exposes `gateway start`, `benchmark run`, `ocr`, or `ingest`, those
-commands are stubs pending their phases.
+Honesty note: Phases 3 and 5 (LiteLLM gateway and OpenRouter/Z.AI hardening),
+11 (OCR), 12–13 (Rust ingest), and 14 (benchmarks) are **not yet implemented**.
+Phase 4 route readiness is implemented, but live local-model investigation still
+requires a running vLLM/Ollama/Spark endpoint. Where the CLI exposes
+`gateway start`, `benchmark run`, `ocr`, or `ingest`, those commands are stubs
+pending their phases.
 
 ## Suggested Sequence After MVP
 
-1. **Phase 3–5** to unlock real model routing breadth (gateway + local + cloud routes). Phase 4 is the unblock for GPU-served local tool-callers (see MODEL_ROUTING.md).
+1. **Phase 3 and 5** to unlock real model routing breadth (gateway + cloud route hardening). Keep Phase 4 focused on proving a running GPU-served local tool-caller when hardware is available (see MODEL_ROUTING.md).
 2. **Phase 14** early-partial to benchmark tool-calling capability per provider, informing routing defaults.
 3. **Phase 11** OCR router once evidence types demand it.
 4. **Phase 12–13** Rust ingest core + read-only MCP for high-throughput ingest.

@@ -1,5 +1,13 @@
 {
   "$schema": "https://opencode.ai/config.json",
+  "permission": {
+    "*": "deny",
+    "findevil-mcp_*": "allow",
+    "findevil-agent-mcp_*": "allow",
+    "question": "deny",
+    "plan_enter": "deny",
+    "plan_exit": "deny"
+  },
   "provider": {
     "verdict-local": {
       "name": "VERDICT Local (OpenAI-compatible: Ollama / vLLM / LM Studio)",

@@ -71,8 +71,8 @@ evidence to the cloud**.
 
 ## 6. Phased Roadmap (0–14)
 
-Status reflects the **current build increment**. Phases 0–2 (partial), 6, 7, 8,
-9, 10 form the MVP core. The rest are planned/stubbed.
+Status reflects the **current build increment**. Phases 0–2 (partial), 4 (route
+readiness), 6, 7, 8, 9, 10 form the MVP core. The rest are planned/stubbed.
 
 | Phase | Deliverable | Status |
 |-------|-------------|--------|
@@ -80,7 +80,7 @@ Status reflects the **current build increment**. Phases 0–2 (partial), 6, 7, 8
 | 1 | Wire OpenCode SDK | Partial |
 | 2 | Wire VERDICT MCP commands | Partial |
 | 3 | LiteLLM universal gateway | Planned |
-| 4 | Local vLLM + Ollama routes | Planned |
+| 4 | Local vLLM + Ollama route readiness | Partial |
 | 5 | OpenRouter + direct Z.AI routes | Planned |
 | 6 | Enforce privacy-mode routing | Done (MVP core) |
 | 7 | Structured finding schema | Done (MVP core) |

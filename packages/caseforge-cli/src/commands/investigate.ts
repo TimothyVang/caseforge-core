@@ -16,6 +16,86 @@ import { chatGptOAuthStatus, printChatGptOAuthSetup, verdictLauncherPath } from 
 import { loadRoutes, loadRoutingPolicy, resolveCandidate, opencodeProfileDir, routeLocation, routeRequiresChatGptOAuth } from "../config.js"
 import { verify } from "./verify.js"
 
+const CASE_OPEN_EXTENSIONS = [".evtx", ".pcap", ".pcapng", ".e01", ".dd", ".raw", ".aff", ".mem", ".ova", ".zip"]
+
+export interface ResolvedEvidenceInput {
+  requestedPath: string
+  caseOpenPath: string
+  inventory: string[]
+  isDirectory: boolean
+}
+
+function supportedEvidenceNames(inventory: string[]): string[] {
+  return inventory.filter((name) => CASE_OPEN_EXTENSIONS.some((ext) => name.toLowerCase().endsWith(ext)))
+}
+
+function caseOpenExtensionPriority(name: string): number {
+  const lower = name.toLowerCase()
+  const idx = CASE_OPEN_EXTENSIONS.findIndex((ext) => lower.endsWith(ext))
+  return idx === -1 ? Number.POSITIVE_INFINITY : idx
+}
+
+export function resolveEvidenceInput(evidencePath: string): ResolvedEvidenceInput {
+  const st = statSync(evidencePath)
+  if (st.isFile()) {
+    return { requestedPath: evidencePath, caseOpenPath: evidencePath, inventory: [evidencePath], isDirectory: false }
+  }
+  if (!st.isDirectory()) throw new Error(`evidence path is not a regular file or directory: ${evidencePath}`)
+
+  const inventory = readdirSync(evidencePath, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => entry.name)
+    .sort((a, b) => a.localeCompare(b))
+
+  if (inventory.length === 0) {
+    throw new Error(`evidence directory is empty: ${evidencePath}`)
+  }
+
+  if (supportedEvidenceNames(inventory).length === 0) {
+    throw new Error(
+      `evidence directory has no supported case_open image (${CASE_OPEN_EXTENSIONS.join(", ")}): ${evidencePath}` +
+        (inventory.length ? `; found: ${inventory.join(", ")}` : ""),
+    )
+  }
+
+  return {
+    requestedPath: evidencePath,
+    caseOpenPath: evidencePath,
+    inventory,
+    isDirectory: true,
+  }
+}
+
+function evidenceToolHint(evidence: ResolvedEvidenceInput, findevilHome?: string): string {
+  if (evidence.isDirectory) {
+    const supported = supportedEvidenceNames(evidence.inventory).sort((a, b) => caseOpenExtensionPriority(a) - caseOpenExtensionPriority(b) || a.localeCompare(b))
+    return (
+      `Evidence type hint: directory input. Call findevil-mcp_case_open with image_path exactly '${evidence.caseOpenPath}', then classify every supported artifact in the inventory` +
+      (supported.length ? ` (${supported.join(", ")})` : "") +
+      ` before deciding the scoped verdict. Do not collapse the directory to only one file.\n`
+    )
+  }
+
+  const lower = evidence.caseOpenPath.toLowerCase()
+  if (lower.endsWith(".evtx")) {
+    const custodyHint = findevilHome
+      ? `After case_open returns case_id, set case_dir to '${findevilHome}/cases/' + case_id; audit_log_path to case_dir + '/audit.jsonl'; manifest_path to case_dir + '/run.manifest.json'. `
+      : ""
+    return (
+      `Evidence type hint: single EVTX. After findevil-mcp_case_open, call findevil-mcp_evtx_query with case_id from case_open, ` +
+      `evtx_path exactly '${evidence.caseOpenPath}', eids [1102], and limit 100. ` +
+      custodyHint +
+      `Append the EVTX query result to audit_log_path with findevil-agent-mcp_audit_append kind 'tool_call_output' before sealing; use payload tool_name 'evtx_query', arguments, output or output_summary, and tool_call_id if the runtime exposes one. ` +
+      `Do not invent output_hash or output_sha256 values. ` +
+      `Do not emit finding_approved unless verify_finding approved a cited finding. Do not call disk_mount or disk_extract_artifacts for a single EVTX file.\n`
+    )
+  }
+  if (lower.endsWith(".pcap") || lower.endsWith(".pcapng")) {
+    return `Evidence type hint: packet capture. After findevil-mcp_case_open, prefer findevil-mcp_pcap_triage / findevil-mcp_zeek_summary; do not use disk_mount.\n`
+  }
+  return ""
+}
+
 /**
  * Independently verify the sealed manifest and persist manifest_verify.json.
  *
@@ -98,6 +178,8 @@ function withDfirContainment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const toolchain = join(projectLocal, "toolchain")
   for (const dir of [
     join(projectLocal, "tmp"),
+    join(projectLocal, "home"),
+    join(projectLocal, "config"),
     join(projectLocal, "share"),
     join(projectLocal, "state"),
     join(projectLocal, "state", "findevil"),
@@ -121,7 +203,9 @@ function withDfirContainment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
     ...env,
     PROJECT_ROOT: env.PROJECT_ROOT ?? dfirHome,
     PROJECT_LOCAL: projectLocal,
+    OPENCODE_TEST_HOME: env.OPENCODE_TEST_HOME ?? join(projectLocal, "home"),
     TMPDIR: env.TMPDIR ?? join(projectLocal, "tmp"),
+    XDG_CONFIG_HOME: env.XDG_CONFIG_HOME ?? join(projectLocal, "config"),
     XDG_DATA_HOME: env.XDG_DATA_HOME ?? join(projectLocal, "share"),
     XDG_STATE_HOME: xdgStateHome,
     XDG_CACHE_HOME: env.XDG_CACHE_HOME ?? join(projectLocal, "cache"),
@@ -136,6 +220,8 @@ function withDfirContainment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
     UV_CACHE_DIR: env.UV_CACHE_DIR ?? join(toolchain, "uv-cache"),
     UV_PYTHON_INSTALL_DIR: env.UV_PYTHON_INSTALL_DIR ?? join(toolchain, "uv-python"),
     PNPM_HOME: env.PNPM_HOME ?? join(toolchain, "pnpm-store"),
+    OPENCODE_DISABLE_EXTERNAL_SKILLS: env.OPENCODE_DISABLE_EXTERNAL_SKILLS ?? "1",
+    OPENCODE_DISABLE_CLAUDE_CODE_SKILLS: env.OPENCODE_DISABLE_CLAUDE_CODE_SKILLS ?? "1",
     PATH: `${join(homedir(), ".cargo", "bin")}:${join(cargoHome, "bin")}:${env.PATH ?? ""}`,
   }
 }
@@ -184,6 +270,13 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
   }
   if (!existsSync(evidencePath)) {
     console.error(`evidence path not found: ${evidencePath}`)
+    return 2
+  }
+  let evidence: ResolvedEvidenceInput
+  try {
+    evidence = resolveEvidenceInput(evidencePath)
+  } catch (e) {
+    console.error((e as Error).message)
     return 2
   }
   const mode = opts.privacy ?? (process.env.CASEFORGE_PRIVACY as PrivacyMode) ?? DEFAULT_PRIVACY_MODE
@@ -256,27 +349,44 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
 
   const command = opts.command ?? "triage"
   const memoryStorePath = env.FINDEVIL_MEMORY_STORE ?? (env.XDG_STATE_HOME ? join(env.XDG_STATE_HOME, "findevil", "memory.sqlite") : undefined)
+  const inventoryText =
+    evidence.isDirectory && evidence.inventory.length
+      ? `Evidence directory inventory (exact filenames only, do not guess alternatives): ${evidence.inventory.join(", ")}.\n`
+      : ""
+  const toolHint = evidenceToolHint(evidence, env.FINDEVIL_HOME)
   // Drive the COMPLETE flow: the evidence-type playbook, then the /verdict
   // reason+seal phase. The run only counts as complete when the manifest is
   // finalized AND manifest_verify reports overall:true — otherwise the produced
   // case is a partial (unsealed) run and `caseforge verify` will reject it.
   const prompt =
-    `Run a complete VERDICT investigation of the evidence at: ${evidencePath} .\n` +
-    `1. Run the /${command} DFIR playbook (open the case, run the forensic MCP tools, cite each tool_call_id + output_sha256).\n` +
-    `2. Then run the /verdict reason+seal phase to completion: verify each cited finding (verify_finding), judge (judge_findings, ACH), correlate (correlate_findings), report_qa, then SEAL — manifest_finalize (write run.manifest.json into the case directory) and manifest_verify.\n` +
+    `This is an authorized, defensive DFIR lab investigation against local evidence controlled by the operator. ` +
+    `Do not exploit, evade, persist, or access any live third-party system; only use the read-only forensic MCP tools to inspect the supplied local evidence.\n` +
+    `Complete a VERDICT investigation of the evidence input: ${evidence.requestedPath}.\n` +
+    `Case-open evidence path: ${evidence.caseOpenPath}.\n` +
+    inventoryText +
+    toolHint +
+    `1. Perform the ${command} workflow directly with MCP tool calls: open the case, call the appropriate forensic MCP tools, and audit each important tool output with findevil-agent-mcp_audit_append.\n` +
+    `2. Then perform the reason+seal phase directly with MCP tool calls. If you have verified cited findings, use verify_finding, judge_findings, and correlate_findings. If you do not have verified cited findings, skip finding_approved and seal the audited tool outputs only. Always run findevil-agent-mcp_audit_verify, then SEAL with findevil-agent-mcp_manifest_finalize (write run.manifest.json into the case directory), then call findevil-agent-mcp_manifest_verify.\n` +
     (memoryStorePath ? `3. Use MEMORY_STORE_PATH exactly as '${memoryStorePath}' for every memory_recall or memory_remember call; never use ~/.local/state/findevil/memory.sqlite in this run.\n` : "") +
-    `Use only the VERDICT forensic MCP tools; do not use shell/bash/read/write/edit/list/grep/glob to inspect evidence or create ad hoc rules. Operate read-only on evidence. ` +
+    `Use only the VERDICT forensic MCP tools with their exact opencode names: findevil-mcp_<tool> and findevil-agent-mcp_<tool>. ` +
+    `Open the supplied evidence first with findevil-mcp_case_open using image_path exactly '${evidence.caseOpenPath}'; never call or invent findevil-agent-mcp_case_open, and never guess alternate image names such as evidence.dd or evidence.e01. ` +
+    `Every tool call name must start with findevil-mcp_ or findevil-agent-mcp_. There is no tool named run; do not call a run tool, task tool, skill tool, todowrite tool, or slash command. ` +
+    `Use findevil-mcp_* for evidence/artifact tools and findevil-agent-mcp_* only for reasoning, judging, correlation, memory, and manifest sealing. Manifest tools are ONLY findevil-agent-mcp_manifest_finalize and findevil-agent-mcp_manifest_verify; never call findevil-mcp_manifest_finalize or findevil-mcp_manifest_verify. ` +
+    `Call MCP tools directly with structured arguments; do not type MCP tool names into shell/bash and do not print JSON examples instead of making real tool calls. ` +
+    `Never claim that a tool call, audit append, manifest finalize, or manifest verify happened unless the corresponding MCP tool actually returned; in particular, do not say manifest verification completed unless findevil-agent-mcp_manifest_verify returned overall:true. ` +
+    `Do not invent underscore variants such as findevil_mcp_manifest_finalize. Do not use shell/bash/read/write/edit/list/grep/glob to inspect evidence or create ad hoc rules. Operate read-only on evidence. ` +
     `Negative-control discipline: suspicious filenames, planted strings, topic notes, archives named passwords, and sinkhole/parked-domain lookups are non-reportable decoy leads unless independent execution, persistence, credential access, C2, or data-movement evidence exists. ` +
     `Scope the verdict to SUSPICIOUS / INDETERMINATE / NO_EVIL. ` +
-    `The run is NOT complete unless manifest_verify reports overall:true — do not stop before the manifest is finalized and verified.`
+    `The investigation is NOT complete unless manifest_verify reports overall:true and a real run.manifest.json plus audit.jsonl exist in the produced case directory — do not stop before the manifest is finalized and verified.`
 
   console.error(`[caseforge] route=${routeId} model=${modelRef} privacy=${mode} evidence=${evidenceClass}`)
-  console.error(`[caseforge] evidence=${evidencePath}`)
+  console.error(`[caseforge] evidence=${evidence.requestedPath}`)
+  if (evidence.caseOpenPath !== evidence.requestedPath) console.error(`[caseforge] case_open=${evidence.caseOpenPath}`)
 
   const bin = verdictLauncherPath(env)
   const launchedAtMs = Date.now() - 1000
   const runCode = await new Promise<number>((resolvePromise) => {
-    const child = spawn(bin, ["run", "--agent", "verdict", "--model", modelRef, prompt], {
+    const child = spawn(bin, ["run", "--pure", "--agent", "verdict", "--model", modelRef, prompt], {
       env,
       stdio: "inherit",
     })
