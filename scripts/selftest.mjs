@@ -51,6 +51,8 @@ console.log("route config:")
   ok("sensitive route selection uses policy local default", chooseRoute({ privacy: "local-only", evidenceClass: "sensitive" }) === policy.sensitive_default)
   ok("OpenAI API route is explicitly named", Boolean(routes["openai-api"]) && routes["openai-api"].auth === "api-key")
   ok("ChatGPT auth uses repo-local verdict launcher", verdictLauncherPath({}) === fileURLToPath(new URL("../bin/verdict", import.meta.url)))
+  const launcher = readFileSync(fileURLToPath(new URL("../bin/verdict", import.meta.url)), "utf8")
+  ok("verdict launcher delegates to external runtime", !/caseforge\/engine|DEFAULT_BIN|VERDICT_WS|build-engine/.test(launcher))
 }
 
 console.log("opencode profile guardrails:")

@@ -12,7 +12,7 @@ import { homedir } from "node:os"
 import { join } from "node:path"
 import { assertModelAllowed, DEFAULT_PRIVACY_MODE, PrivacyViolationError, assembleVerdictFromAudit } from "@verdict/caseforge-sdk"
 import type { EvidenceClass, PrivacyMode } from "@verdict/caseforge-sdk"
-import { chatGptOAuthStatus, printChatGptOAuthSetup } from "../chatgpt-auth.js"
+import { chatGptOAuthStatus, printChatGptOAuthSetup, verdictLauncherPath } from "../chatgpt-auth.js"
 import { loadRoutes, loadRoutingPolicy, resolveCandidate, opencodeProfileDir, routeLocation, routeRequiresChatGptOAuth } from "../config.js"
 import { verify } from "./verify.js"
 
@@ -273,7 +273,7 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
   console.error(`[caseforge] route=${routeId} model=${modelRef} privacy=${mode} evidence=${evidenceClass}`)
   console.error(`[caseforge] evidence=${evidencePath}`)
 
-  const bin = process.env.VERDICT_BIN ?? "verdict"
+  const bin = verdictLauncherPath(env)
   const launchedAtMs = Date.now() - 1000
   const runCode = await new Promise<number>((resolvePromise) => {
     const child = spawn(bin, ["run", "--agent", "verdict", "--model", modelRef, prompt], {

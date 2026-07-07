@@ -3,7 +3,7 @@ import { chatGptOAuthLogin, chatGptOAuthLogout, chatGptOAuthStatus } from "../ch
 type Flags = Record<string, string | boolean>
 
 function usage(): void {
-  console.log(`caseforge auth — ChatGPT subscription OAuth for the embedded VERDICT engine
+  console.log(`caseforge auth — ChatGPT subscription OAuth for the VERDICT runtime
 
   auth status                 show whether ChatGPT OAuth is configured
   auth login [--method M]     log in with ChatGPT Pro/Plus OAuth (M: headless|browser)
