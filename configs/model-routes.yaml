@@ -62,6 +62,20 @@ routes:
 
   # ---- CLOUD routes (privacy_locations: [cloud]) -----------------------------
 
+  # ChatGPT subscription OAuth through the embedded opencode engine.
+  # This is NOT OpenAI Platform API billing and must not use OPENAI_API_KEY.
+  # Authenticate with:
+  #   caseforge auth login --method headless
+  # or:
+  #   caseforge auth login --method browser
+  chatgpt-oauth:
+    provider: openai
+    model: gpt-5.5
+    api_key: null
+    auth: chatgpt-oauth
+    tool_calling: true
+    privacy_locations: [cloud]
+
   openrouter:
     provider: openrouter
     base_url: https://openrouter.ai/api/v1
@@ -78,10 +92,11 @@ routes:
     tool_calling: true
     privacy_locations: [cloud]
 
-  openai:
+  openai-api:
     provider: openai
     base_url: https://api.openai.com/v1
     model: gpt-5.5                    # reliably drives tools in the bench harness
+    auth: api-key
     api_key: "{env:OPENAI_API_KEY}"
     tool_calling: true
     privacy_locations: [cloud]
@@ -92,8 +107,8 @@ routes:
 routing_policy:
   # For sensitive/seized evidence the router restricts selection to local-only.
   sensitive_default: local-vllm
-  # For explicitly non-sensitive work, a capable cloud route may be chosen.
-  non_sensitive_default: openai
+  # For explicitly non-sensitive work, prefer ChatGPT subscription OAuth.
+  non_sensitive_default: chatgpt-oauth
   notes: >-
     Selection is a suggestion only. The privacy router has final say and will
     reject any route whose privacy_locations include "cloud" when the active

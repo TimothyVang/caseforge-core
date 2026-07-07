@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# verdict — launch the VERDICT agent runtime: the opencode fork built from
+# caseforge/engine (verdict-opencode). Typing `verdict` drops you into the
+# interactive agent TUI, exactly like upstream `opencode`. Every argument is
+# passed straight through to the binary (`verdict run …`, `verdict auth`, etc).
+#
+# Path-agnostic: the engine location is derived from this script's own path
+# (symlinks resolved), then overridable via $VERDICT_BIN / $VERDICT_WS. No
+# hard-coded machine path is baked in.
+set -euo pipefail
+
+resolve_self() {
+  local source dir target
+  source="${BASH_SOURCE[0]}"
+  while [ -L "$source" ]; do
+    dir="$(cd -P "$(dirname "$source")" && pwd)"
+    target="$(readlink "$source")"
+    case "$target" in
+      /*) source="$target" ;;
+      *) source="$dir/$target" ;;
+    esac
+  done
+  dir="$(cd -P "$(dirname "$source")" && pwd)"
+  printf '%s/%s\n' "$dir" "$(basename "$source")"
+}
+
+opencode_target() {
+  local os arch
+  os="$(uname -s)"
+  arch="$(uname -m)"
+  case "$os:$arch" in
+    Linux:x86_64 | Linux:amd64) printf '%s\n' "linux-x64" ;;
+    Linux:aarch64 | Linux:arm64) printf '%s\n' "linux-arm64" ;;
+    Darwin:x86_64 | Darwin:amd64) printf '%s\n' "darwin-x64" ;;
+    Darwin:arm64 | Darwin:aarch64) printf '%s\n' "darwin-arm64" ;;
+    *)
+      echo "[verdict] unsupported platform for bundled opencode: $os/$arch" >&2
+      return 1
+      ;;
+  esac
+}
+
+SELF="$(resolve_self)"
+BIN_DIR="$(cd "$(dirname "$SELF")" && pwd)"        # <umbrella>/caseforge/bin
+WS="${VERDICT_WS:-$(cd "$BIN_DIR/../.." && pwd)}"  # <umbrella>
+
+TARGET="$(opencode_target)"
+DEFAULT_BIN="$WS/caseforge/engine/packages/opencode/dist/opencode-$TARGET/bin/opencode"
+BIN="${VERDICT_BIN:-$DEFAULT_BIN}"
+
+export OPENCODE_CONFIG="${OPENCODE_CONFIG:-$WS/caseforge/configs/opencode/opencode.json}"
+export OPENCODE_CONFIG_DIR="${OPENCODE_CONFIG_DIR:-$WS/caseforge/configs/opencode}"
+
+# A stale/relocated $VERDICT_BIN (e.g. an old pre-umbrella herder/ path exported
+# by a previous direnv) must not break the launcher: fall back to the in-repo build.
+if [ ! -x "$BIN" ] && [ -x "$DEFAULT_BIN" ]; then
+  BIN="$DEFAULT_BIN"
+fi
+
+if [ ! -x "$BIN" ]; then
+  echo "[verdict] engine binary not built:" >&2
+  echo "          $BIN" >&2
+  echo "[verdict] build it first:  make -C \"$WS\" build-engine" >&2
+  exit 1
+fi
+
+exec "$BIN" "$@"

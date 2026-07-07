@@ -3,6 +3,7 @@
  * caseforge — headless DFIR agentic core CLI.
  *
  *   caseforge doctor
+ *   caseforge auth status | login | logout
  *   caseforge models            [--privacy MODE] [--evidence CLASS]
  *   caseforge investigate <evidence-path> [--privacy MODE] [--evidence CLASS] [--route ID] [--command NAME]
  *   caseforge verify <run-dir>
@@ -11,6 +12,7 @@
  */
 import type { EvidenceClass, PrivacyMode } from "@verdict/caseforge-sdk"
 import { doctor } from "./commands/doctor.js"
+import { auth } from "./commands/auth.js"
 import { models } from "./commands/models.js"
 import { investigate } from "./commands/investigate.js"
 import { verify } from "./commands/verify.js"
@@ -44,6 +46,7 @@ function usage(): void {
   console.log(`caseforge — headless DFIR agentic core
 
   doctor                          check environment + config prerequisites
+  auth status|login|logout         manage ChatGPT subscription OAuth for verdict
   models [--privacy M] [--evidence C]   list routes and privacy permissions
   investigate <evidence-path>     run a privacy-gated DFIR investigation
       [--privacy local-only|redacted-cloud|cloud-ok] [--evidence synthetic|public|approved|sensitive]
@@ -64,7 +67,9 @@ async function main(): Promise<number> {
 
   switch (cmd) {
     case "doctor":
-      return doctor()
+      return doctor({ route: typeof flags.route === "string" ? flags.route : undefined })
+    case "auth":
+      return auth(rest, flags)
     case "models":
       return models({ privacy, evidence })
     case "investigate":

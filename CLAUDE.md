@@ -41,7 +41,7 @@ scripts/                  setup.sh (clone+build all 3 repos), selftest.mjs, boot
 ## How to work here (conventions)
 
 - **Build order matters:** the CLI depends on the SDK's built types. Use `npm run build` (root — builds SDK then CLI). Never `--workspaces` unordered.
-- **Verify with `node scripts/selftest.mjs`** — 17 model-independent checks (privacy routing, finding rejection, artifact/custody validation). Keep them green.
+- **Verify with `node scripts/selftest.mjs`** — model-independent checks (privacy routing, route config, finding rejection, artifact/custody validation). Keep them green.
 - **TypeScript, ESM, NodeNext** — imports use `.js` extensions; strict mode.
 - **The vendored SDK** (`packages/caseforge-sdk/vendor/opencode-sdk`) is intentionally modifiable — do not replace it with a registry version.
 - **CI** (`.github/workflows/caseforge-fixtures.yml`) runs build + selftest + the privacy/verify guarantees against **synthetic fixtures only** — never real evidence.
@@ -53,8 +53,9 @@ scripts/                  setup.sh (clone+build all 3 repos), selftest.mjs, boot
 npm install && npm run build
 export VERDICT_DFIR_HOME=/path/to/verdict-dfir-community   # the forensic toolkit
 node packages/caseforge-cli/dist/src/cli.js doctor         # prereq check
+node packages/caseforge-cli/dist/src/cli.js auth login --method headless
 node packages/caseforge-cli/dist/src/cli.js models --privacy local-only
-node packages/caseforge-cli/dist/src/cli.js investigate <evidence> --privacy cloud-ok --evidence synthetic --route openai
+node packages/caseforge-cli/dist/src/cli.js investigate <evidence> --privacy cloud-ok --evidence synthetic --route chatgpt-oauth
 node packages/caseforge-cli/dist/src/cli.js verify <run-dir>
 ```
 

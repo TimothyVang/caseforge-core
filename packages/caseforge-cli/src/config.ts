@@ -8,19 +8,32 @@ import { fileURLToPath } from "node:url"
 import { parse as parseYaml } from "yaml"
 import type { ModelCandidate, ProviderLocation } from "@verdict/caseforge-sdk"
 
+export type RouteAuth = "chatgpt-oauth" | "api-key"
+
 export interface RouteConfig {
   provider: string
   model: string
   base_url?: string
+  auth?: RouteAuth
   tool_calling?: boolean | "unknown"
   /** Router contract: cloud-tainted if any listed location is "cloud". */
   privacy_locations: ProviderLocation[]
   network?: boolean
 }
 
+export interface RoutingPolicy {
+  sensitive_default?: string
+  non_sensitive_default?: string
+  notes?: string
+}
+
 /** Collapse privacy_locations to a single location (fail-closed to cloud). */
 export function routeLocation(route: RouteConfig): ProviderLocation {
   return route.privacy_locations?.includes("cloud") ? "cloud" : "local"
+}
+
+export function routeRequiresChatGptOAuth(route: RouteConfig): boolean {
+  return route.auth === "chatgpt-oauth"
 }
 
 /**
@@ -53,6 +66,11 @@ function loadYaml<T>(name: string): T | undefined {
 export function loadRoutes(): Record<string, RouteConfig> {
   const doc = loadYaml<{ routes?: Record<string, RouteConfig> }>("model-routes.yaml")
   return doc?.routes ?? {}
+}
+
+export function loadRoutingPolicy(): RoutingPolicy {
+  const doc = loadYaml<{ routing_policy?: RoutingPolicy }>("model-routes.yaml")
+  return doc?.routing_policy ?? {}
 }
 
 /** Resolve a route id into a ModelCandidate for the privacy router. */

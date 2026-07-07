@@ -3,11 +3,12 @@
  * caseforge self-test — asserts the model-independent MVP guarantees:
  *  - privacy router respects mode (local-only blocks cloud; cloud-ok gates on class)
  *  - invalid findings are rejected (no evidence / bad hash)
+ *  - route config keeps ChatGPT OAuth distinct from OpenAI API keys
  *  - missing VERDICT artifacts => run incomplete
  *  - failed manifest verification => custody-invalid
  *  - citation custody: unknown tool_call_id / mismatched hash => not verified
  */
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs"
+import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { fileURLToPath } from "node:url"
@@ -35,6 +36,36 @@ ok("cloud-ok blocks sensitive cloud", decideModel(cloud, { mode: "cloud-ok", evi
 ok("redacted-cloud needs redaction", decideModel(cloud, { mode: "redacted-cloud" }).allowed === false)
 ok("redacted-cloud allows when redacted", decideModel(cloud, { mode: "redacted-cloud", redacted: true }).allowed === true)
 ok("default fail-closed (unknown class, cloud-ok) blocks", decideModel(cloud, { mode: "cloud-ok" }).allowed === false)
+
+console.log("route config:")
+{
+  const { loadRoutes, loadRoutingPolicy, routeLocation, routeRequiresChatGptOAuth } = await import("../packages/caseforge-cli/dist/src/config.js")
+  const { chooseRoute } = await import("../packages/caseforge-cli/dist/src/commands/investigate.js")
+  const { verdictLauncherPath } = await import("../packages/caseforge-cli/dist/src/chatgpt-auth.js")
+  const routes = loadRoutes()
+  const policy = loadRoutingPolicy()
+  ok("chatgpt-oauth route exists", Boolean(routes["chatgpt-oauth"]))
+  ok("chatgpt-oauth is cloud + oauth guarded", routeLocation(routes["chatgpt-oauth"]) === "cloud" && routeRequiresChatGptOAuth(routes["chatgpt-oauth"]))
+  ok("non-sensitive default prefers ChatGPT OAuth", policy.non_sensitive_default === "chatgpt-oauth")
+  ok("non-sensitive route selection uses policy default", chooseRoute({ privacy: "cloud-ok", evidenceClass: "synthetic" }) === "chatgpt-oauth")
+  ok("sensitive route selection uses policy local default", chooseRoute({ privacy: "local-only", evidenceClass: "sensitive" }) === policy.sensitive_default)
+  ok("OpenAI API route is explicitly named", Boolean(routes["openai-api"]) && routes["openai-api"].auth === "api-key")
+  ok("ChatGPT auth uses repo-local verdict launcher", verdictLauncherPath({}) === fileURLToPath(new URL("../bin/verdict", import.meta.url)))
+}
+
+console.log("opencode profile guardrails:")
+{
+  const agentNames = ["verdict", "pool-a", "pool-b", "verifier", "judge", "correlator"]
+  for (const name of agentNames) {
+    const text = readFileSync(fileURLToPath(new URL(`../configs/opencode/agent/${name}.md`, import.meta.url)), "utf8")
+    ok(`${name}: shell/direct FS tools denied`, /bash:\s+deny/.test(text) && /read:\s+deny/.test(text) && /grep:\s+deny/.test(text) && /glob:\s+deny/.test(text) && /list:\s+deny/.test(text))
+    ok(`${name}: MCP tools allowed`, /mcp_\*:\s+allow/.test(text))
+  }
+  const triage = readFileSync(fileURLToPath(new URL("../configs/opencode/command/triage.md", import.meta.url)), "utf8")
+  const verdict = readFileSync(fileURLToPath(new URL("../configs/opencode/command/verdict.md", import.meta.url)), "utf8")
+  ok("triage command has negative-control gate", /Negative-control gate/.test(triage) && /name\/content bait/.test(triage))
+  ok("verdict command rejects decoy-only findings", /Do not accept Findings/.test(verdict) && /negative-control leads/.test(verdict))
+}
 
 console.log("finding validator:")
 const sha = "a".repeat(64)

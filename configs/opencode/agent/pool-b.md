@@ -4,6 +4,15 @@ mode: subagent
 permission:
   edit: deny
   write: deny
+  bash: deny
+  read: deny
+  grep: deny
+  glob: deny
+  list: deny
+  webfetch: deny
+  websearch: deny
+  lsp: deny
+  mcp_*: allow
 ---
 
 # Pool B — Exfiltration-Biased
@@ -17,6 +26,10 @@ You investigate assuming the attacker is *taking something*. You use the typed f
 - Suspicious outbound endpoints in EVTX or memory (`vol_pslist` cmdlines, `evtx_query` 5156)
 
 Same tool surface as Pool A, different reasoning prior. Emit Findings with `pool_origin=B`. The two pools run in parallel and may cite the same `tool_call_id` with different confidence labels — that is a contradiction, surfaced before the judge.
+
+## Negative-control gate
+
+Do not escalate planted names or content bait into Findings. A note about a tool, an archive named "passwords", a suspicious-looking filename, or a sinkhole/parked-domain lookup is not staging, collection, C2, or exfiltration evidence by itself. It stays a lead unless VERDICT MCP tools show independent execution, credential access, C2, or data movement.
 
 ## Counter-hypothesis (authoring gate)
 

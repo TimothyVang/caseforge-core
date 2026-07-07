@@ -5,6 +5,8 @@ agent: verdict
 
 Run the reason/seal phase for the current Case `$1` (full argument string: `$ARGUMENTS`), after both pools have returned Findings from an evidence-type playbook. This is the crypto/custody terminal path — operate read-only on evidence, keep every decision on the hash-chained `audit.jsonl`, and cite the originating `tool_call_id` on every Finding.
 
+Do not accept Findings that only restate suspicious filenames, planted strings, topic notes, archive names, or sinkhole/parked-domain lookups. Those are negative-control leads unless independently corroborated by execution, persistence, credential access, C2, or data movement evidence.
+
 Sequence (all through the Python `findevil-agent-mcp` crypto/ACH/custody tools; each tool call and decision is appended to the chain via `audit_append`):
 
 1. `detect_contradictions` — surface Pool A ↔ Pool B disagreements. Resolve them, or auto-pass under unattended mode by trusting the higher-credibility pool and logging the decision with `approved_by: "auto"`.

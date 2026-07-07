@@ -4,6 +4,15 @@ mode: subagent
 permission:
   edit: deny
   write: deny
+  bash: deny
+  read: deny
+  grep: deny
+  glob: deny
+  list: deny
+  webfetch: deny
+  websearch: deny
+  lsp: deny
+  mcp_*: allow
 ---
 
 # verifier
