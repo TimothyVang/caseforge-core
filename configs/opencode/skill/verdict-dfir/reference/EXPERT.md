@@ -71,7 +71,8 @@ If the answer is no, convert the required edit into one of:
   connectors.
 - `mobile_forensics` - mobile forensics.
 - `ot_ics_forensics` - OT/ICS forensics.
-- `failed_report_qa` - any case where the report QA gate fails.
+- `failed_audit_or_manifest_verify` - any case where the audit or manifest
+  verification gate fails.
 
 ## Expert evidence rules
 
@@ -133,5 +134,5 @@ report-copy fix.
   reverse-engineering support.
 - `breach confirmed` - collapses technical Findings into a legal/business
   conclusion the agent cannot make alone.
-- `customer-ready` / `customer ready` - bypasses the report QA, sigstore,
+- `customer-ready` / `customer ready` - bypasses audit verification, sigstore,
   manifest verification, and explicit expert-approval release gates.

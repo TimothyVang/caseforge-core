@@ -40,7 +40,7 @@ ok("default fail-closed (unknown class, cloud-ok) blocks", decideModel(cloud, { 
 console.log("route config:")
 {
   const { loadRoutes, loadRoutingPolicy, routeLocation, routeRequiresChatGptOAuth } = await import("../packages/caseforge-cli/dist/src/config.js")
-  const { chooseRoute } = await import("../packages/caseforge-cli/dist/src/commands/investigate.js")
+  const { chooseRoute, resolveEvidenceInput } = await import("../packages/caseforge-cli/dist/src/commands/investigate.js")
   const { verdictLauncherPath } = await import("../packages/caseforge-cli/dist/src/chatgpt-auth.js")
   const routes = loadRoutes()
   const policy = loadRoutingPolicy()
@@ -53,20 +53,71 @@ console.log("route config:")
   ok("ChatGPT auth uses repo-local verdict launcher", verdictLauncherPath({}) === fileURLToPath(new URL("../bin/verdict", import.meta.url)))
   const launcher = readFileSync(fileURLToPath(new URL("../bin/verdict", import.meta.url)), "utf8")
   ok("verdict launcher delegates to external runtime", !/caseforge\/engine|DEFAULT_BIN|VERDICT_WS|build-engine/.test(launcher))
+  ok("verdict launcher falls back to installed opencode", /type -P -a opencode/.test(launcher) && /\.opencode\/bin\/opencode/.test(launcher))
+  ok("verdict launcher refuses recursive launch", /VERDICT_BIN points back to this CaseForge launcher/.test(launcher) && /\$resolved" != "\$SELF/.test(launcher))
+  const investigateSrc = readFileSync(fileURLToPath(new URL("../packages/caseforge-cli/src/commands/investigate.ts", import.meta.url)), "utf8")
+  ok("investigate launches isolated opencode profile", /"run",\s*"--pure",\s*"--agent",\s*"verdict"/.test(investigateSrc))
+  ok("investigate prompt scopes authorized defensive DFIR", /authorized, defensive DFIR lab investigation/.test(investigateSrc) && /read-only forensic MCP tools/.test(investigateSrc))
+  ok("investigate contains opencode global state", /OPENCODE_TEST_HOME/.test(investigateSrc) && /XDG_CONFIG_HOME/.test(investigateSrc) && /OPENCODE_DISABLE_EXTERNAL_SKILLS/.test(investigateSrc))
+  ok("investigate prompt routes case_open to Rust MCP", /findevil-mcp_case_open/.test(investigateSrc) && /never call or invent findevil-agent-mcp_case_open/.test(investigateSrc))
+  ok("investigate prompt routes single EVTX to evtx_query", /single EVTX/.test(investigateSrc) && /findevil-mcp_evtx_query/.test(investigateSrc) && /Do not call disk_mount/.test(investigateSrc))
+  ok("investigate prompt avoids helper tool confusion", /Every tool call name must start with findevil-mcp_/.test(investigateSrc) && /do not call a run tool, task tool, skill tool, todowrite tool/.test(investigateSrc))
+  ok("investigate pins manifest tools to agent MCP", /Manifest tools are ONLY findevil-agent-mcp_manifest_finalize/.test(investigateSrc) && /never call findevil-mcp_manifest_finalize/.test(investigateSrc))
+  ok("investigate requires verified manifest before complete", /manifest_verify reports overall:true/.test(investigateSrc) && /real run\.manifest\.json plus audit\.jsonl/.test(investigateSrc))
+  const evidenceDir = mkdtempSync(join(tmpdir(), "caseforge-evidence-"))
+  try {
+    writeFileSync(join(evidenceDir, "manifest.json"), "{}")
+    writeFileSync(join(evidenceDir, "image.E01"), "tiny")
+    const resolved = resolveEvidenceInput(evidenceDir)
+    ok("directory evidence stays directory-scoped for case_open", resolved.caseOpenPath === evidenceDir && resolved.inventory.includes("image.E01"))
+  } finally {
+    rmSync(evidenceDir, { recursive: true, force: true })
+  }
+  const evtxDir = mkdtempSync(join(tmpdir(), "caseforge-evtx-"))
+  try {
+    const evtxFile = join(evtxDir, "DE_1102_security_log_cleared.evtx")
+    writeFileSync(evtxFile, "tiny")
+    const resolved = resolveEvidenceInput(evtxFile)
+    ok("single EVTX evidence opens exact file", resolved.isDirectory === false && resolved.caseOpenPath === evtxFile)
+  } finally {
+    rmSync(evtxDir, { recursive: true, force: true })
+  }
 }
 
 console.log("opencode profile guardrails:")
 {
+  const profile = JSON.parse(readFileSync(fileURLToPath(new URL("../configs/opencode/opencode.json", import.meta.url)), "utf8"))
+  ok(
+    "opencode profile denies by default but allows VERDICT MCP tools",
+    profile.permission?.["*"] === "deny" &&
+      profile.permission?.["findevil-mcp_*"] === "allow" &&
+      profile.permission?.["findevil-agent-mcp_*"] === "allow",
+  )
+  ok("opencode profile denies helper prompts", profile.permission?.question === "deny" && profile.permission?.plan_enter === "deny" && profile.permission?.plan_exit === "deny")
   const agentNames = ["verdict", "pool-a", "pool-b", "verifier", "judge", "correlator"]
   for (const name of agentNames) {
     const text = readFileSync(fileURLToPath(new URL(`../configs/opencode/agent/${name}.md`, import.meta.url)), "utf8")
     ok(`${name}: shell/direct FS tools denied`, /bash:\s+deny/.test(text) && /read:\s+deny/.test(text) && /grep:\s+deny/.test(text) && /glob:\s+deny/.test(text) && /list:\s+deny/.test(text))
-    ok(`${name}: MCP tools allowed`, /mcp_\*:\s+allow/.test(text))
+    ok(`${name}: opencode helper tools denied`, /task:\s+deny/.test(text) && /skill:\s+deny/.test(text) && /todowrite:\s+deny/.test(text))
+    ok(
+      `${name}: exact MCP tool families allowed`,
+      /["']?findevil-mcp_\*["']?:\s+allow/.test(text) && /["']?findevil-agent-mcp_\*["']?:\s+allow/.test(text) && !/^\s*mcp_\*:\s+allow/m.test(text),
+    )
   }
+  const skill = readFileSync(fileURLToPath(new URL("../configs/opencode/skill/verdict-dfir/SKILL.md", import.meta.url)), "utf8")
+  ok("skill names exact opencode MCP tools", /findevil-mcp_case_open/.test(skill) && /findevil-agent-mcp_manifest_verify/.test(skill) && /do not invent underscore variants/i.test(skill))
   const triage = readFileSync(fileURLToPath(new URL("../configs/opencode/command/triage.md", import.meta.url)), "utf8")
   const verdict = readFileSync(fileURLToPath(new URL("../configs/opencode/command/verdict.md", import.meta.url)), "utf8")
+  ok("triage command uses exact MCP names", /findevil-mcp_case_open/.test(triage) && /findevil-mcp_disk_mount/.test(triage) && /findevil-agent-mcp_detect_contradictions/.test(triage))
+  ok("verdict command uses exact MCP names", /findevil-agent-mcp_audit_verify/.test(verdict) && /findevil-agent-mcp_manifest_finalize/.test(verdict) && /findevil-agent-mcp_manifest_verify/.test(verdict) && /findevil_mcp_manifest_finalize/.test(verdict))
+  ok("verdict command forbids Rust manifest variants", /Never call\s+`findevil-mcp_manifest_finalize`/.test(verdict) && /`findevil-mcp_manifest_verify`/.test(verdict))
+  ok("verdict command does not require nonexistent report_qa", !/report_qa/.test(verdict))
   ok("triage command has negative-control gate", /Negative-control gate/.test(triage) && /name\/content bait/.test(triage))
   ok("verdict command rejects decoy-only findings", /Do not accept Findings/.test(verdict) && /negative-control leads/.test(verdict))
+  ok("verdict skill forbids Rust manifest tools", /Never call\s+`findevil-mcp_manifest_finalize`/.test(skill) && /findevil_mcp_manifest_finalize/.test(skill))
+  const verdictAgent = readFileSync(fileURLToPath(new URL("../configs/opencode/agent/verdict.md", import.meta.url)), "utf8")
+  ok("verdict agent treats workflows as labels not slash commands", /Evidence-type workflow labels/.test(verdictAgent) && /not slash commands/.test(verdictAgent) && /Do not call a `run`/.test(verdictAgent))
+  ok("verdict agent local profile avoids task helper", /local locked profile does not expose subagent helper tools/.test(verdictAgent) && /Do not call `task`/.test(verdictAgent))
 }
 
 console.log("finding validator:")

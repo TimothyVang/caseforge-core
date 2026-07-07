@@ -5,7 +5,7 @@
 # the runtime (`verdict run ...`, `verdict auth`, etc).
 #
 # Path-agnostic: resolve this launcher and config from the script path, then
-# delegate to $VERDICT_BIN or an external `verdict` already on PATH.
+# delegate to $VERDICT_BIN, an external `verdict`, or an installed `opencode`.
 set -euo pipefail
 
 resolve_path() {
@@ -44,6 +44,20 @@ runtime_bin() {
     fi
   done < <(type -P -a verdict 2>/dev/null || true)
 
+  while IFS= read -r candidate; do
+    [ -n "$candidate" ] || continue
+    resolved="$(resolve_path "$candidate")"
+    if [ "$resolved" != "$SELF" ] && [ -x "$resolved" ]; then
+      printf '%s\n' "$resolved"
+      return 0
+    fi
+  done < <(
+    {
+      type -P -a opencode 2>/dev/null || true
+      [ -x "$HOME/.opencode/bin/opencode" ] && printf '%s\n' "$HOME/.opencode/bin/opencode"
+    } | awk '!seen[$0]++'
+  )
+
   return 1
 }
 
@@ -58,7 +72,7 @@ BIN="$(runtime_bin || true)"
 
 if [ -z "$BIN" ] || [ ! -x "$BIN" ]; then
   echo "[verdict] external VERDICT runtime not found." >&2
-  echo "[verdict] set VERDICT_BIN=/path/to/verdict or install verdict-opencode's verdict binary on PATH." >&2
+  echo "[verdict] set VERDICT_BIN=/path/to/verdict or install verdict/opencode on PATH." >&2
   exit 1
 fi
 

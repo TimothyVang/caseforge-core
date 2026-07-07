@@ -16,6 +16,19 @@ must cite the exact tool call that produced it.
   output. Don't trust the model — reproduce the finding.
 - **Read-only on evidence.** Tools hash (SHA-256) every output; the audit chain
   is your source of truth.
+- **Use exact opencode MCP tool names.** Rust DFIR tools are exposed as
+  `findevil-mcp_<tool>` (for example `findevil-mcp_case_open`,
+  `findevil-mcp_registry_query`). Python custody/ACH tools are exposed as
+  `findevil-agent-mcp_<tool>` (for example
+  `findevil-agent-mcp_verify_finding`, `findevil-agent-mcp_manifest_finalize`,
+  `findevil-agent-mcp_manifest_verify`). Call these as tools with structured
+  arguments. Do not type MCP names into bash, do not emit JSON examples as a
+  substitute for tool calls, and do not invent underscore variants such as
+  `findevil_mcp_manifest_finalize`.
+- **Manifest tools are Python custody tools only.** Never call
+  `findevil-mcp_manifest_finalize` or `findevil-mcp_manifest_verify`; use
+  `findevil-agent-mcp_manifest_finalize` and
+  `findevil-agent-mcp_manifest_verify`.
 - **Three verdict words only:** `SUSPICIOUS` (reportable evidence found),
   `INDETERMINATE` (coverage too limited to decide), `NO_EVIL` (no finding in the
   artifacts actually examined). Never imply more certainty than the evidence
@@ -43,8 +56,11 @@ must cite the exact tool call that produced it.
 2. Run the playbook's tool sequence; record each tool call and its hash.
 3. Reason: apply ACH (`reference/JUDGING.md`), form competing hypotheses,
    re-verify cited tool calls.
-4. Seal with `/verdict` — produce the signed manifest and the scoped verdict
-   word with its citations.
+4. Seal with the `findevil-agent-mcp_audit_verify`,
+   `findevil-agent-mcp_manifest_finalize`, and
+   `findevil-agent-mcp_manifest_verify` tools — produce the signed manifest and
+   the scoped verdict word with its citations. Do not call nonexistent report
+   QA tools or slash commands during a locked local run.
 
 Stop and ask the operator whenever a stop condition in `reference/EXPERT.md`
 fires (destructive action needed, out-of-scope, ambiguous authorization).
