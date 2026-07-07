@@ -3,7 +3,12 @@ import { existsSync } from "node:fs"
 import { join } from "node:path"
 import { execFileSync } from "node:child_process"
 import { DEFAULT_PRIVACY_MODE } from "@verdict/caseforge-sdk"
-import { configsDir, loadRoutes, opencodeProfileDir, routeLocation } from "../config.js"
+import { chatGptOAuthStatus, verdictLauncherPath } from "../chatgpt-auth.js"
+import { configsDir, loadRoutes, loadRoutingPolicy, opencodeProfileDir, routeLocation, routeRequiresChatGptOAuth } from "../config.js"
+
+export interface DoctorOpts {
+  route?: string
+}
 
 function has(cmd: string): boolean {
   try {
@@ -30,11 +35,16 @@ async function reachable(baseUrl: string): Promise<boolean> {
   return false
 }
 
-export async function doctor(): Promise<number> {
+export async function doctor(opts: DoctorOpts = {}): Promise<number> {
+  let fail = 0
   let warn = 0
   const ok = (m: string) => console.log(`  [ok]   ${m}`)
   const miss = (m: string) => {
     console.log(`  [MISS] ${m}`)
+    fail++
+  }
+  const note = (m: string) => {
+    console.log(`  [warn] ${m}`)
     warn++
   }
 
@@ -42,7 +52,8 @@ export async function doctor(): Promise<number> {
   console.log(`privacy default: ${DEFAULT_PRIVACY_MODE} (real evidence stays local unless overridden)\n`)
 
   // agent runtime
-  has(process.env.VERDICT_BIN ?? "verdict") ? ok("verdict binary on PATH") : miss("verdict binary not on PATH (build verdict-opencode)")
+  const verdictBin = verdictLauncherPath()
+  existsSync(verdictBin) ? ok(`verdict launcher: ${verdictBin}`) : miss(`verdict launcher missing: ${verdictBin}`)
 
   // locked opencode profile
   existsSync(join(opencodeProfileDir(), "opencode.json"))
@@ -63,15 +74,40 @@ export async function doctor(): Promise<number> {
 
   // routes + local endpoints
   const routes = loadRoutes()
+  const policy = loadRoutingPolicy()
   const ids = Object.keys(routes)
   ids.length ? ok(`${ids.length} routes in ${join(configsDir(), "model-routes.yaml")}`) : miss("no routes in configs/model-routes.yaml")
+  const selected = opts.route ?? process.env.CASEFORGE_ROUTE ?? policy.sensitive_default
+  if (selected) {
+    const route = routes[selected]
+    if (!route) {
+      miss(`selected route '${selected}' not found in configs/model-routes.yaml`)
+    } else {
+      ok(`selected route: ${selected}`)
+      if (routeLocation(route) === "local" && route.base_url) {
+        ;(await reachable(route.base_url)) ? ok(`selected local endpoint reachable (${route.base_url})`) : miss(`selected local endpoint down (${route.base_url})`)
+      }
+      if (routeRequiresChatGptOAuth(route)) {
+        const status = chatGptOAuthStatus()
+        status.ok ? ok("ChatGPT OAuth credential present for provider 'openai'") : miss(`ChatGPT OAuth credential missing: ${status.reason}`)
+      }
+    }
+  } else {
+    note("no selected/default route configured; set routing_policy.sensitive_default or pass --route")
+  }
+
   for (const [id, r] of Object.entries(routes)) {
+    if (id === selected) continue
     if (routeLocation(r) === "local" && r.base_url) {
-      ;(await reachable(r.base_url)) ? ok(`local route '${id}' endpoint reachable (${r.base_url})`) : miss(`local route '${id}' endpoint down (${r.base_url})`)
+      ;(await reachable(r.base_url)) ? ok(`optional local route '${id}' endpoint reachable (${r.base_url})`) : note(`optional local route '${id}' endpoint down (${r.base_url})`)
     }
   }
 
   console.log()
-  console.log(warn === 0 ? "All prerequisites satisfied." : `${warn} item(s) need attention above.`)
-  return warn === 0 ? 0 : 1
+  if (fail === 0) {
+    console.log(warn === 0 ? "All prerequisites satisfied." : `Selected-route prerequisites satisfied; ${warn} optional item(s) noted above.`)
+    return 0
+  }
+  console.log(`${fail} required item(s) need attention above; ${warn} optional item(s) noted.`)
+  return 1
 }

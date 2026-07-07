@@ -24,7 +24,8 @@ export function models(opts: { privacy?: PrivacyMode; evidence?: EvidenceClass }
     const d = decideModel(resolved.candidate, { mode, evidenceClass })
     const loc = routeLocation(resolved.route)
     const tc = resolved.route.tool_calling === false ? " (no tool-calling)" : ""
-    console.log(`  ${d.allowed ? "[allow]" : "[deny] "} ${id.padEnd(16)} ${loc.padEnd(6)} ${resolved.route.model}${tc}`)
+    const auth = resolved.route.auth ? ` auth=${resolved.route.auth}` : ""
+    console.log(`  ${d.allowed ? "[allow]" : "[deny] "} ${id.padEnd(16)} ${loc.padEnd(6)} ${resolved.route.model}${tc}${auth}`)
     if (!d.allowed) console.log(`             ${d.reason}`)
   }
   return 0

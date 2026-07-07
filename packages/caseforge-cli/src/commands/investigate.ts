@@ -7,11 +7,13 @@
  * route is refused outright — no evidence leaves the host.
  */
 import { spawn, execFileSync } from "node:child_process"
-import { existsSync, readdirSync, statSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs"
+import { homedir } from "node:os"
 import { join } from "node:path"
 import { assertModelAllowed, DEFAULT_PRIVACY_MODE, PrivacyViolationError, assembleVerdictFromAudit } from "@verdict/caseforge-sdk"
 import type { EvidenceClass, PrivacyMode } from "@verdict/caseforge-sdk"
-import { loadRoutes, resolveCandidate, opencodeProfileDir, routeLocation } from "../config.js"
+import { chatGptOAuthStatus, printChatGptOAuthSetup, verdictLauncherPath } from "../chatgpt-auth.js"
+import { loadRoutes, loadRoutingPolicy, resolveCandidate, opencodeProfileDir, routeLocation, routeRequiresChatGptOAuth } from "../config.js"
 import { verify } from "./verify.js"
 
 /**
@@ -23,12 +25,11 @@ import { verify } from "./verify.js"
  * (`scripts/manifest-verify-offline.py`) — the "LLM is not the source of truth"
  * step for custody — and writes the result to manifest_verify.json.
  */
-function finalizeManifestVerify(runDir: string): void {
+function finalizeManifestVerify(runDir: string, dfirHome = process.env.VERDICT_DFIR_HOME): void {
   const manifest = join(runDir, "run.manifest.json")
   const out = join(runDir, "manifest_verify.json")
   if (!existsSync(manifest) || existsSync(out)) return
-  const home = process.env.VERDICT_DFIR_HOME
-  const verifier = home ? join(home, "scripts", "manifest-verify-offline.py") : ""
+  const verifier = dfirHome ? join(dfirHome, "scripts", "manifest-verify-offline.py") : ""
   if (!verifier || !existsSync(verifier)) return
   try {
     const json = execFileSync("python3", [verifier, manifest, "--json"], { encoding: "utf8" })
@@ -65,7 +66,7 @@ async function finalizeVerdictJson(runDir: string): Promise<void> {
 }
 
 /** Newest VERDICT case dir under FINDEVIL_HOME/cases, if any. */
-function findNewestCaseDir(dfirHome: string | undefined, findevilHome: string | undefined): string | undefined {
+function findNewestCaseDir(dfirHome: string | undefined, findevilHome: string | undefined, newerThanMs = 0): string | undefined {
   const home = findevilHome ?? (dfirHome ? join(dfirHome, ".project-local", "findevil") : undefined)
   if (!home) return undefined
   const cases = join(home, "cases")
@@ -75,12 +76,68 @@ function findNewestCaseDir(dfirHome: string | undefined, findevilHome: string | 
     const dir = join(cases, name)
     try {
       const st = statSync(dir)
-      if (st.isDirectory() && (!newest || st.mtimeMs > newest.mtime)) newest = { dir, mtime: st.mtimeMs }
+      if (st.isDirectory() && st.mtimeMs > newerThanMs && (!newest || st.mtimeMs > newest.mtime)) newest = { dir, mtime: st.mtimeMs }
     } catch {
       /* skip */
     }
   }
   return newest?.dir
+}
+
+/**
+ * Mirror VERDICT's scripts/lib/project-env.sh defaults for launched MCP tools.
+ *
+ * This keeps forensic runtime state under the Dev checkout's gitignored
+ * .project-local tree. The parent caseforge process is left untouched.
+ */
+function withDfirContainment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const dfirHome = env.VERDICT_DFIR_HOME
+  if (!dfirHome) return env
+
+  const projectLocal = env.PROJECT_LOCAL ?? join(dfirHome, ".project-local")
+  const toolchain = join(projectLocal, "toolchain")
+  for (const dir of [
+    join(projectLocal, "tmp"),
+    join(projectLocal, "share"),
+    join(projectLocal, "state"),
+    join(projectLocal, "state", "findevil"),
+    join(projectLocal, "cache"),
+    join(projectLocal, "findevil"),
+    join(projectLocal, "npm"),
+    join(projectLocal, "ms-playwright"),
+    join(projectLocal, "puppeteer"),
+    join(toolchain, "cargo"),
+    join(toolchain, "rustup"),
+    join(toolchain, "uv-cache"),
+    join(toolchain, "uv-python"),
+    join(toolchain, "pnpm-store"),
+  ]) {
+    mkdirSync(dir, { recursive: true })
+  }
+
+  const xdgStateHome = env.XDG_STATE_HOME ?? join(projectLocal, "state")
+  const cargoHome = env.CARGO_HOME ?? join(toolchain, "cargo")
+  return {
+    ...env,
+    PROJECT_ROOT: env.PROJECT_ROOT ?? dfirHome,
+    PROJECT_LOCAL: projectLocal,
+    TMPDIR: env.TMPDIR ?? join(projectLocal, "tmp"),
+    XDG_DATA_HOME: env.XDG_DATA_HOME ?? join(projectLocal, "share"),
+    XDG_STATE_HOME: xdgStateHome,
+    XDG_CACHE_HOME: env.XDG_CACHE_HOME ?? join(projectLocal, "cache"),
+    FINDEVIL_HOME: env.FINDEVIL_HOME ?? join(projectLocal, "findevil"),
+    FINDEVIL_MEMORY_STORE: env.FINDEVIL_MEMORY_STORE ?? join(xdgStateHome, "findevil", "memory.sqlite"),
+    HAYABUSA_RULES_BASE: env.HAYABUSA_RULES_BASE ?? join(env.XDG_DATA_HOME ?? join(projectLocal, "share"), "hayabusa-mcp"),
+    npm_config_cache: env.npm_config_cache ?? join(projectLocal, "npm"),
+    PLAYWRIGHT_BROWSERS_PATH: env.PLAYWRIGHT_BROWSERS_PATH ?? join(projectLocal, "ms-playwright"),
+    PUPPETEER_CACHE_DIR: env.PUPPETEER_CACHE_DIR ?? join(projectLocal, "puppeteer"),
+    CARGO_HOME: cargoHome,
+    RUSTUP_HOME: env.RUSTUP_HOME ?? join(toolchain, "rustup"),
+    UV_CACHE_DIR: env.UV_CACHE_DIR ?? join(toolchain, "uv-cache"),
+    UV_PYTHON_INSTALL_DIR: env.UV_PYTHON_INSTALL_DIR ?? join(toolchain, "uv-python"),
+    PNPM_HOME: env.PNPM_HOME ?? join(toolchain, "pnpm-store"),
+    PATH: `${join(homedir(), ".cargo", "bin")}:${join(cargoHome, "bin")}:${env.PATH ?? ""}`,
+  }
 }
 
 export interface InvestigateOpts {
@@ -92,18 +149,30 @@ export interface InvestigateOpts {
   noVerify?: boolean
 }
 
-/** Pick the requested route, or the first route allowed under this context. */
-function chooseRoute(opts: { privacy: PrivacyMode; evidenceClass: EvidenceClass; route?: string }): string | undefined {
+function isRouteAllowed(id: string, opts: { privacy: PrivacyMode; evidenceClass: EvidenceClass }): boolean {
+  const resolved = resolveCandidate(id)
+  if (!resolved) return false
+  try {
+    assertModelAllowed(resolved.candidate, { mode: opts.privacy, evidenceClass: opts.evidenceClass })
+    return true
+  } catch {
+    return false
+  }
+}
+
+function policyDefaultRoute(opts: { evidenceClass: EvidenceClass }): string | undefined {
+  const policy = loadRoutingPolicy()
+  return opts.evidenceClass === "sensitive" ? policy.sensitive_default : policy.non_sensitive_default
+}
+
+/** Pick the requested route, then the configured policy default, then any allowed fallback. */
+export function chooseRoute(opts: { privacy: PrivacyMode; evidenceClass: EvidenceClass; route?: string }): string | undefined {
   if (opts.route) return opts.route
+  const preferred = policyDefaultRoute(opts)
+  if (preferred && isRouteAllowed(preferred, opts)) return preferred
   for (const id of Object.keys(loadRoutes())) {
-    const resolved = resolveCandidate(id)
-    if (!resolved) continue
-    try {
-      assertModelAllowed(resolved.candidate, { mode: opts.privacy, evidenceClass: opts.evidenceClass })
-      return id
-    } catch {
-      /* not allowed under this mode; try next */
-    }
+    if (id === preferred) continue
+    if (isRouteAllowed(id, opts)) return id
   }
   return undefined
 }
@@ -144,12 +213,28 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
   }
 
   const { route } = resolved
+  let oauthAuthPath: string | undefined
+  if (routeRequiresChatGptOAuth(route)) {
+    if (route.provider !== "openai") {
+      console.error(`route '${routeId}' is marked auth=chatgpt-oauth but provider is '${route.provider}', expected 'openai'.`)
+      return 2
+    }
+    const status = chatGptOAuthStatus()
+    if (!status.ok) {
+      console.error(`route '${routeId}' requires ChatGPT subscription OAuth, but it is not ready: ${status.reason}`)
+      console.error("OpenAI Platform API keys are not accepted for this route.")
+      printChatGptOAuthSetup()
+      return 1
+    }
+    if (status.source === "file") oauthAuthPath = status.authPath
+  }
+
   // Map a route to an opencode model ref + env.
-  const env: NodeJS.ProcessEnv = {
+  const env: NodeJS.ProcessEnv = withDfirContainment({
     ...process.env,
     OPENCODE_CONFIG: join(opencodeProfileDir(), "opencode.json"),
     OPENCODE_CONFIG_DIR: opencodeProfileDir(),
-  }
+  })
   let modelRef: string
   if (routeLocation(route) === "local") {
     modelRef = "verdict-local/local"
@@ -163,9 +248,14 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
   } else {
     // cloud provider handled by opencode's built-in catalog + auth
     modelRef = `${route.provider}/${route.model}`
+    if (routeRequiresChatGptOAuth(route)) {
+      delete env.OPENAI_API_KEY
+      if (!env.OPENCODE_AUTH_CONTENT && oauthAuthPath) env.OPENCODE_AUTH_CONTENT = readFileSync(oauthAuthPath, "utf8")
+    }
   }
 
   const command = opts.command ?? "triage"
+  const memoryStorePath = env.FINDEVIL_MEMORY_STORE ?? (env.XDG_STATE_HOME ? join(env.XDG_STATE_HOME, "findevil", "memory.sqlite") : undefined)
   // Drive the COMPLETE flow: the evidence-type playbook, then the /verdict
   // reason+seal phase. The run only counts as complete when the manifest is
   // finalized AND manifest_verify reports overall:true — otherwise the produced
@@ -174,13 +264,17 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
     `Run a complete VERDICT investigation of the evidence at: ${evidencePath} .\n` +
     `1. Run the /${command} DFIR playbook (open the case, run the forensic MCP tools, cite each tool_call_id + output_sha256).\n` +
     `2. Then run the /verdict reason+seal phase to completion: verify each cited finding (verify_finding), judge (judge_findings, ACH), correlate (correlate_findings), report_qa, then SEAL — manifest_finalize (write run.manifest.json into the case directory) and manifest_verify.\n` +
-    `Use only the VERDICT forensic MCP tools; operate read-only on evidence. Scope the verdict to SUSPICIOUS / INDETERMINATE / NO_EVIL. ` +
+    (memoryStorePath ? `3. Use MEMORY_STORE_PATH exactly as '${memoryStorePath}' for every memory_recall or memory_remember call; never use ~/.local/state/findevil/memory.sqlite in this run.\n` : "") +
+    `Use only the VERDICT forensic MCP tools; do not use shell/bash/read/write/edit/list/grep/glob to inspect evidence or create ad hoc rules. Operate read-only on evidence. ` +
+    `Negative-control discipline: suspicious filenames, planted strings, topic notes, archives named passwords, and sinkhole/parked-domain lookups are non-reportable decoy leads unless independent execution, persistence, credential access, C2, or data-movement evidence exists. ` +
+    `Scope the verdict to SUSPICIOUS / INDETERMINATE / NO_EVIL. ` +
     `The run is NOT complete unless manifest_verify reports overall:true — do not stop before the manifest is finalized and verified.`
 
   console.error(`[caseforge] route=${routeId} model=${modelRef} privacy=${mode} evidence=${evidenceClass}`)
   console.error(`[caseforge] evidence=${evidencePath}`)
 
-  const bin = process.env.VERDICT_BIN ?? "verdict"
+  const bin = verdictLauncherPath(env)
+  const launchedAtMs = Date.now() - 1000
   const runCode = await new Promise<number>((resolvePromise) => {
     const child = spawn(bin, ["run", "--agent", "verdict", "--model", modelRef, prompt], {
       env,
@@ -196,15 +290,15 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
   if (opts.noVerify) return runCode
 
   // Close the loop: locate the produced run/case dir and validate it.
-  const runDir = opts.runDir ?? findNewestCaseDir(process.env.VERDICT_DFIR_HOME, process.env.FINDEVIL_HOME)
+  const runDir = opts.runDir ?? findNewestCaseDir(env.VERDICT_DFIR_HOME, env.FINDEVIL_HOME, launchedAtMs)
   if (!runDir) {
-    console.error("[caseforge] investigation finished; no run/case dir found to verify.")
-    console.error("[caseforge] run `caseforge verify <run-dir>` on the produced case directory.")
-    return runCode
+    console.error("[caseforge] investigation finished; no fresh run/case dir was produced to verify.")
+    console.error("[caseforge] the run is incomplete until a new case directory is sealed and verified.")
+    return runCode === 0 ? 1 : runCode
   }
   // Independently confirm custody (writes manifest_verify.json), assemble the
   // structured verdict.json report from the audit chain, then validate.
-  finalizeManifestVerify(runDir)
+  finalizeManifestVerify(runDir, env.VERDICT_DFIR_HOME)
   await finalizeVerdictJson(runDir)
   console.error(`\n[caseforge] verifying produced run: ${runDir}`)
   const verifyCode = await verify([runDir])

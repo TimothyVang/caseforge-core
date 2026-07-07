@@ -24,7 +24,8 @@ cat <<EOF
 caseforge lab ready — tmux session: ${SESSION}   (toolkit: ${DFIR})
 
   Attach:    tmux attach -t ${SESSION}          (detach: Ctrl-b then d)
-  Run:       caseforge investigate <evidence> --privacy cloud-ok --evidence synthetic --route openai
+  Run:       caseforge auth login --method headless
+             caseforge investigate <evidence> --privacy cloud-ok --evidence synthetic --route chatgpt-oauth
              caseforge verify <run-dir>
              caseforge models   |   caseforge doctor
   Record:    asciinema rec ${ROOT}/demo.cast    (run inside the session; Ctrl-d to stop; play: asciinema play demo.cast)

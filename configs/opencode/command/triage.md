@@ -5,7 +5,7 @@ agent: verdict
 
 Investigate the case directory `$1` (full argument string: `$ARGUMENTS`) as the default breadth-first entry point. A mixed case dir — holding a disk image, a memory image, a Velociraptor zip, and EVTX/PCAP files — is how you exercise the whole tool surface in one run.
 
-Operate read-only on evidence. SHA-256 every tool output. Cite the originating `tool_call_id` on every Finding. Emit only the scoped verdict words: `SUSPICIOUS` (reportable evidence found), `INDETERMINATE` (leads or limited coverage prevent a scoped clearance), or `NO_EVIL` (no reportable Finding in the artifacts actually examined — never a whole-environment clean bill).
+Operate read-only on evidence through VERDICT forensic MCP tools only. Do not use shell/bash, direct file read/list/grep/glob, write/edit, or ad hoc generated rules to inspect evidence or manufacture proof. SHA-256 every tool output. Cite the originating `tool_call_id` on every Finding. Emit only the scoped verdict words: `SUSPICIOUS` (reportable evidence found), `INDETERMINATE` (leads or limited coverage prevent a scoped clearance), or `NO_EVIL` (no reportable Finding in the artifacts actually examined — never a whole-environment clean bill).
 
 Sequence:
 
@@ -21,5 +21,7 @@ Sequence:
 Stop and ask the analyst when: a tool returns `BinaryNotFound`; two consecutive iterations yield no new Findings and no new contradictions; a `CONFIRMED` Finding has a `correlate_findings` corroboration count below 2 artifact classes; or the evidence vault is modified mid-run.
 
 Do not emit disk-content Findings from `case_open` alone — custody-only disk registration is not a Finding. A single-file input only ever triggers that one type's branch; point this command at a mixed directory for full breadth.
+
+Negative-control gate: suspicious filenames, planted strings, topic notes, archives named "passwords", and sinkhole/parked-domain lookups are non-reportable decoy leads unless independent behavioral evidence exists. Do not turn name/content bait into malware, credential dumping, C2, staging, or exfiltration Findings.
 
 After both pools return Findings, hand off to the reason/seal phase (`/verdict`).
