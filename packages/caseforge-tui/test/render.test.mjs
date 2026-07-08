@@ -119,3 +119,66 @@ test("custody-invalid case shows a NOT VERIFIED banner over findings", async () 
 test("valid custody shows no warning banner", async () => {
   assert.equal(renderCustodyBanner(await loadCase(FIX)), "")
 })
+
+import { renderFindingDetail } from "../dist/src/render.js"
+
+test("finding detail renders the full finding with custody, tool_call_id, output_sha256", async () => {
+  const v = await loadCase(FIX)
+  const d = renderFindingDetail(v, 0)
+  assert.match(d, /FINDING DETAIL/)
+  assert.match(d, /f-1/) // finding_id
+  assert.match(d, /T1070\.001/) // technique
+  assert.match(d, /Security event log cleared/) // full description
+  assert.match(d, /cited/) // custody citation status
+  assert.match(d, /tc-1/) // tool_call_id
+  assert.match(d, /aa11/) // output_sha256
+})
+test("finding detail matches the selected index (second finding)", async () => {
+  const d = renderFindingDetail(await loadCase(FIX), 1)
+  assert.match(d, /f-2/)
+  assert.match(d, /tc-2/)
+  assert.match(d, /bb22/)
+})
+test("finding detail surfaces the matching audit.jsonl record when available", async () => {
+  const d = renderFindingDetail(await loadCase(FIX), 0)
+  // audit record for tc-1 is a tool_call_result at seq 3
+  assert.match(d, /tool_call_result/)
+})
+test("finding detail degrades honestly when findings are absent (no fabrication)", async () => {
+  const v = await loadCase(NOREPORT) // no verdict.json -> no findings
+  const d = renderFindingDetail(v, 0)
+  assert.match(d, /not produced by this run/)
+  assert.doesNotMatch(d, /tc-/) // no fabricated tool_call_id
+})
+test("finding detail degrades honestly for an out-of-range index", async () => {
+  const d = renderFindingDetail(await loadCase(FIX), 99)
+  assert.match(d, /not produced by this run/)
+})
+test("finding detail degrades honestly for an uncited finding (no fabricated custody)", () => {
+  // Hand-built CaseView slice: a hypothesis finding with no tool_call_id and a
+  // custody report that marks it uncited. Exercises the honest-degradation
+  // branch that no on-disk synthetic fixture covers. No evidence involved.
+  const v = {
+    runDir: "(synthetic)",
+    validation: { status: "complete", custodyValid: true, detail: "" },
+    recordedManifestOverall: true,
+    verdict: {
+      verdict: "INDETERMINATE",
+      findings: [{ finding_id: "h-1", verdict: "HYPOTHESIS", description: "Possible staging, unconfirmed" }],
+    },
+    custody: {
+      total: 1, cited: 0, uncited: 1, replayVerified: 0, replayFailed: 0, ok: true,
+      findings: [{ finding_id: "h-1", cited: false, replayVerified: null, reason: "unanchored (hypothesis) — no tool_call_id required" }],
+    },
+    coverage: [],
+    audit: [],
+    timeline: [],
+    chainOk: false,
+  }
+  const d = renderFindingDetail(v, 0)
+  assert.match(d, /h-1/)
+  assert.match(d, /Possible staging, unconfirmed/) // full description still shown
+  assert.match(d, /not cited/) // honest custody state
+  assert.doesNotMatch(d, /tc-/) // no fabricated tool_call_id
+  assert.doesNotMatch(d, /sha256 [0-9a-f]/) // no fabricated output hash
+})

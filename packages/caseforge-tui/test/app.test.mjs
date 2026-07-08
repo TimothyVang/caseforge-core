@@ -39,3 +39,46 @@ test("reduce is immutable (returns a new object)", () => {
   assert.notEqual(s, s2)
   assert.equal(s.cursor, 0) // original unchanged
 })
+test("finding cursor moves within bounds in the case view", () => {
+  let s = reduce(initialState, "enter", 3) // -> case view
+  assert.equal(s.view, "case")
+  assert.equal(s.finding, 0)
+  s = reduce(s, "up", 3, 2) // clamp at 0
+  assert.equal(s.finding, 0)
+  s = reduce(s, "down", 3, 2)
+  assert.equal(s.finding, 1)
+  s = reduce(s, "down", 3, 2) // clamp at findings.length-1
+  assert.equal(s.finding, 1)
+})
+test("finding cursor clamps at 0 when the case has no findings", () => {
+  let s = reduce(initialState, "enter", 3) // -> case view
+  s = reduce(s, "down", 3, 0) // findingCount 0 -> last is 0
+  assert.equal(s.finding, 0)
+})
+test("entering the case resets the finding cursor to 0", () => {
+  let s = reduce(initialState, "enter", 3)
+  s = reduce(s, "down", 3, 3) // finding -> 1
+  assert.equal(s.finding, 1)
+  s = reduce(s, "back", 3, 3) // -> picker
+  assert.equal(s.view, "picker")
+  s = reduce(s, "enter", 3) // -> case again
+  assert.equal(s.finding, 0)
+})
+test("enter opens detail for the selected finding; back returns detail -> case", () => {
+  let s = reduce(initialState, "enter", 3) // -> case
+  s = reduce(s, "enter", 3, 2) // -> detail
+  assert.equal(s.view, "detail")
+  s = reduce(s, "back", 3, 2) // -> case
+  assert.equal(s.view, "case")
+})
+test("enter in the case view with no findings is a no-op (stays in case)", () => {
+  let s = reduce(initialState, "enter", 3) // -> case
+  s = reduce(s, "enter", 3, 0) // no findings -> no detail
+  assert.equal(s.view, "case")
+})
+test("ctrl-c quits from the detail view", () => {
+  let s = reduce(initialState, "enter", 3)
+  s = reduce(s, "enter", 3, 2) // -> detail
+  s = reduce(s, "quit", 3, 2)
+  assert.equal(s.quit, true)
+})
