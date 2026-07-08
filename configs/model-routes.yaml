@@ -62,7 +62,7 @@ routes:
 
   # ---- CLOUD routes (privacy_locations: [cloud]) -----------------------------
 
-  # ChatGPT subscription OAuth through the embedded opencode engine.
+  # ChatGPT subscription OAuth through the external VERDICT runtime.
   # This is NOT OpenAI Platform API billing and must not use OPENAI_API_KEY.
   # Authenticate with:
   #   caseforge auth login --method headless
@@ -102,7 +102,7 @@ routes:
     privacy_locations: [cloud]
 
 # ------------------------------------------------------------------------------
-# Optional default selection policy (advisory; the engine/router enforces it).
+# Optional default selection policy (advisory; the CaseForge router enforces it).
 # ------------------------------------------------------------------------------
 routing_policy:
   # For sensitive/seized evidence the router restricts selection to local-only.

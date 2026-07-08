@@ -1,6 +1,6 @@
 # Product Requirements — caseforge-core
 
-> Headless, agent-friendly DFIR engine built around VERDICT tools, the OpenCode
+> Headless, agent-friendly DFIR controller built around VERDICT tools, the OpenCode
 > SDK, and universal LLM routing. Show me the evidence: every reportable
 > finding is backed by tool output, not model assertion.
 
@@ -30,7 +30,7 @@ workstation, a server, or a CI fixture runner.
 
 ## 3. Goals
 
-- Headless DFIR engine driven by the OpenCode SDK controller — no GUI dependency.
+- Headless DFIR controller driven by the OpenCode SDK controller — no GUI dependency.
 - Universal LLM routing: local/offline models and online/API providers behind one gateway.
 - Privacy-mode router that keeps real evidence local by default.
 - Structured finding schema with enforced evidence backing.

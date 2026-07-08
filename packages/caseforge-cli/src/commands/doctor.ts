@@ -3,7 +3,7 @@ import { existsSync } from "node:fs"
 import { join } from "node:path"
 import { execFileSync } from "node:child_process"
 import { DEFAULT_PRIVACY_MODE } from "@verdict/caseforge-sdk"
-import { chatGptOAuthStatus, verdictLauncherPath } from "../chatgpt-auth.js"
+import { caseForgeLauncherPath, chatGptOAuthStatus, resolveVerdictRuntime } from "../chatgpt-auth.js"
 import { configsDir, loadRoutes, loadRoutingPolicy, opencodeProfileDir, routeLocation, routeRequiresChatGptOAuth, type RouteConfig } from "../config.js"
 
 export interface DoctorOpts {
@@ -57,8 +57,12 @@ export async function doctor(opts: DoctorOpts = {}): Promise<number> {
   console.log(`privacy default: ${DEFAULT_PRIVACY_MODE} (real evidence stays local unless overridden)\n`)
 
   // agent runtime
-  const verdictBin = verdictLauncherPath()
-  existsSync(verdictBin) ? ok(`verdict launcher: ${verdictBin}`) : miss(`verdict launcher missing: ${verdictBin}`)
+  const verdictBin = caseForgeLauncherPath()
+  existsSync(verdictBin) ? ok(`CaseForge verdict launcher: ${verdictBin}`) : miss(`CaseForge verdict launcher missing: ${verdictBin}`)
+  const runtime = resolveVerdictRuntime()
+  runtime.runtimePath
+    ? ok(`VERDICT runtime (${runtime.runtimeSource}): ${runtime.runtimePath}${runtime.runtimeVersion ? ` (${runtime.runtimeVersion})` : ""}`)
+    : miss(`VERDICT runtime missing: ${runtime.reason}`)
 
   // locked opencode profile
   existsSync(join(opencodeProfileDir(), "opencode.json"))
