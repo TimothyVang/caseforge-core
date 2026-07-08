@@ -9,6 +9,8 @@ a real, hash-chained local run; it is **not** a confirmed intrusion and **not** 
 full-battery detection.
 
 Machine-readable scorecard: [`spark-scorecard-auto-95f54362.json`](./spark-scorecard-auto-95f54362.json).
+Why the gpt-oss agent run never sealed (forcing the fallback) and how to fix it:
+[`LOCAL_LLM_SEAL_FAILURE.md`](./LOCAL_LLM_SEAL_FAILURE.md).
 
 ## What ran
 
