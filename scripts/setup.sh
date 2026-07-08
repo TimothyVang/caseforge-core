@@ -60,7 +60,7 @@ cat <<EOF
   export VERDICT_DFIR_HOME="$WORK/verdict-dfir-community"
   # local model (e.g. Ollama on a DGX Spark over your LAN):
   export VERDICT_LLM_BASEURL="http://<spark-ip>:11434/v1"
-  export VERDICT_LLM_MODEL="qwen3.6:35b-a3b"
+  export VERDICT_LLM_MODEL="gpt-oss:20b"
   export CASEFORGE_PRIVACY="local-only"
 
   node "$CASEFORGE_ROOT/packages/caseforge-cli/dist/src/cli.js" doctor
