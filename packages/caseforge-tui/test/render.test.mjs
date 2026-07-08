@@ -7,11 +7,24 @@ import { renderHeader, renderFindings, renderCoverage, renderAudit, renderScreen
 
 const here = dirname(fileURLToPath(import.meta.url))
 const FIX = join(here, "..", "..", "..", "fixtures", "synthetic", "sample-run")
+const MINIMAL = join(here, "..", "..", "..", "fixtures", "synthetic", "minimal-complete-run")
 
 test("fixture run validates complete + custody valid (live re-verify)", async () => {
   const v = await loadCase(FIX)
   assert.equal(v.validation.status, "complete")
   assert.equal(v.validation.custodyValid, true)
+})
+test("minimal complete fixture supports the read-only header slice", async () => {
+  const v = await loadCase(MINIMAL)
+  assert.equal(v.validation.status, "complete")
+  assert.equal(v.validation.custodyValid, true)
+  assert.equal(v.recordedManifestOverall, true)
+  assert.equal(v.verdict?.verdict, "NO_EVIL")
+
+  const h = renderHeader(v)
+  assert.match(h, /NO_EVIL/)
+  assert.match(h, /recorded/)
+  assert.match(h, /re-verified now/)
 })
 test("header renders verdict word + dual custody lights", async () => {
   const h = renderHeader(await loadCase(FIX))

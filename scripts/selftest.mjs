@@ -242,7 +242,17 @@ console.log("tui workbench:")
 {
   const { loadCase } = await import("../packages/caseforge-tui/dist/src/load.js")
   const { renderHeader, renderFindings, renderScreen } = await import("../packages/caseforge-tui/dist/src/render.js")
+  const minimalDir = fileURLToPath(new URL("../fixtures/synthetic/minimal-complete-run", import.meta.url))
   const fixDir = fileURLToPath(new URL("../fixtures/synthetic/sample-run", import.meta.url))
+  const minimal = await loadCase(minimalDir)
+  ok(
+    "tui: minimal fixture renders verdict + recorded/live custody lights",
+    minimal.validation.status === "complete" &&
+      minimal.validation.custodyValid === true &&
+      minimal.recordedManifestOverall === true &&
+      /NO_EVIL/.test(renderHeader(minimal)) &&
+      /re-verified now/.test(renderHeader(minimal)),
+  )
   const v = await loadCase(fixDir)
   ok("tui: fixture run validates complete + custody re-verified", v.validation.status === "complete" && v.validation.custodyValid === true)
   ok("tui: header renders verdict + dual custody lights", /SUSPICIOUS/.test(renderHeader(v)) && /re-verified now/.test(renderHeader(v)))

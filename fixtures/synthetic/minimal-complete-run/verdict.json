@@ -1,0 +1,8 @@
+{
+  "case_id": "synthetic-minimal-001",
+  "verdict": "NO_EVIL",
+  "findings": [],
+  "attack_coverage": {
+    "observed_techniques": []
+  }
+}
