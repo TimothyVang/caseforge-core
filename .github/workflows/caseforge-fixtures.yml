@@ -35,6 +35,9 @@ jobs:
       - name: Self-test (privacy router, finding schema, artifact + custody validation)
         run: node scripts/selftest.mjs
 
+      - name: TUI Ink smoke tests (synthetic fixtures only)
+        run: npm test -w @verdict/caseforge-tui
+
       - name: Privacy guarantee — cloud routes must be denied under local-only
         run: |
           out="$(node packages/caseforge-cli/dist/src/cli.js models --privacy local-only)"
