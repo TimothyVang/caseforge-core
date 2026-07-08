@@ -36,7 +36,15 @@ say "1/3 verdict-opencode -> build the verdict binary"
 clone verdict-opencode
 ( cd "$WORK/verdict-opencode" && bun install && cd packages/opencode && bun run script/build.ts --single --skip-embed-web-ui )
 BIN="$(ls "$WORK"/verdict-opencode/packages/opencode/dist/*/bin/opencode 2>/dev/null | head -1 || true)"
-if [ -n "$BIN" ]; then mkdir -p "$HOME/.local/bin"; cp "$BIN" "$HOME/.local/bin/verdict"; chmod +x "$HOME/.local/bin/verdict"; echo "  installed: ~/.local/bin/verdict ($("$HOME/.local/bin/verdict" --version 2>/dev/null))"; else echo "  [warn] verdict binary not found after build"; fi
+if [ -n "$BIN" ]; then
+  mkdir -p "$HOME/.local/bin"
+  DEST="$HOME/.local/bin/verdict"
+  rm -f "$DEST"
+  install -m 755 "$BIN" "$DEST"
+  echo "  installed: ~/.local/bin/verdict ($("$DEST" --version 2>/dev/null))"
+else
+  echo "  [warn] verdict binary not found after build"
+fi
 
 say "2/3 verdict-dfir-community -> build the forensic MCP tools"
 clone verdict-dfir-community

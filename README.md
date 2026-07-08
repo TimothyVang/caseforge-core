@@ -17,7 +17,7 @@
 > `tool_call_id`, an `output_sha256`, and a verified manifest. **Real evidence
 > stays local by default.**
 
-`caseforge-core` is the headless DFIR engine that drives the
+`caseforge-core` is the headless DFIR controller that drives the
 [VERDICT](https://github.com/TimothyVang/verdict-dfir-community) forensic MCP
 tools with the [`verdict`](https://github.com/TimothyVang/verdict-opencode)
 agent runtime, on the model **you** choose — local (vLLM/Ollama) or cloud —
@@ -41,7 +41,7 @@ caseforge does **not** contain the other two — it drives the `verdict` binary 
 
 Implemented and tested (this build):
 
-- **OpenCode SDK controller** (`@verdict/caseforge-sdk`, absorbs the VERDICT agent harness).
+- **OpenCode SDK controller** (`@verdict/caseforge-sdk`, the VERDICT agent harness).
 - **VERDICT MCP integration** — attaches `findevil-mcp` (32 Rust tools) + `findevil-agent-mcp` (14 Python tools) via the locked profile in `configs/opencode/`.
 - **Privacy-mode router** — `local-only` (default) / `redacted-cloud` / `cloud-ok`, fail-closed.
 - **Structured finding schema** — every finding cites ≥1 tool call; invalid findings rejected.

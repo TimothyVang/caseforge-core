@@ -1,6 +1,6 @@
 # Architecture — caseforge-core
 
-> Headless DFIR engine. Evidence flows in, verified structured findings flow
+> Headless DFIR controller. Evidence flows in, verified structured findings flow
 > out. The LLM orchestrates; VERDICT tools are the source of truth.
 
 ## 1. Components

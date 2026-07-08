@@ -8,7 +8,7 @@
  *  - failed manifest verification => custody-invalid
  *  - citation custody: unknown tool_call_id / mismatched hash => not verified
  */
-import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs"
+import { chmodSync, mkdtempSync, readFileSync, realpathSync, writeFileSync, rmSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { fileURLToPath } from "node:url"
@@ -42,7 +42,7 @@ console.log("route config:")
   const { loadRoutes, loadRoutingPolicy, routeLocation, routeRequiresChatGptOAuth } = await import("../packages/caseforge-cli/dist/src/config.js")
   const { chooseRoute, resolveEvidenceInput } = await import("../packages/caseforge-cli/dist/src/commands/investigate.js")
   const { selectedLocalEndpoint } = await import("../packages/caseforge-cli/dist/src/commands/doctor.js")
-  const { verdictLauncherPath } = await import("../packages/caseforge-cli/dist/src/chatgpt-auth.js")
+  const { caseForgeLauncherPath, resolveVerdictRuntime, verdictLauncherPath } = await import("../packages/caseforge-cli/dist/src/chatgpt-auth.js")
   const routes = loadRoutes()
   const policy = loadRoutingPolicy()
   ok("chatgpt-oauth route exists", Boolean(routes["chatgpt-oauth"]))
@@ -51,9 +51,44 @@ console.log("route config:")
   ok("non-sensitive route selection uses policy default", chooseRoute({ privacy: "cloud-ok", evidenceClass: "synthetic" }) === "chatgpt-oauth")
   ok("sensitive route selection uses policy local default", chooseRoute({ privacy: "local-only", evidenceClass: "sensitive" }) === policy.sensitive_default)
   ok("OpenAI API route is explicitly named", Boolean(routes["openai-api"]) && routes["openai-api"].auth === "api-key")
-  ok("ChatGPT auth uses repo-local verdict launcher", verdictLauncherPath({}) === fileURLToPath(new URL("../bin/verdict", import.meta.url)))
+  const launcherPath = fileURLToPath(new URL("../bin/verdict", import.meta.url))
+  ok("doctor checks the CaseForge launcher path directly", caseForgeLauncherPath() === launcherPath)
+  ok("ChatGPT auth uses repo-local verdict launcher", verdictLauncherPath({}) === launcherPath)
+  const runtimeDir = mkdtempSync(join(tmpdir(), "caseforge-runtime-"))
+  try {
+    const fakeRuntime = join(runtimeDir, "verdict")
+    writeFileSync(
+      fakeRuntime,
+      `#!/usr/bin/env bash
+case "$1:$2" in
+  --version:) echo "0.0.0-agent-test"; exit 0 ;;
+  run:--help) printf '%s\\n' "opencode run [message..]" "--agent" "--model"; exit 0 ;;
+  auth:--help) printf '%s\\n' "opencode auth" "opencode auth login" "opencode auth logout"; exit 0 ;;
+esac
+exit 64
+`,
+    )
+    chmodSync(fakeRuntime, 0o755)
+    const explicitRuntime = resolveVerdictRuntime({ ...process.env, VERDICT_BIN: fakeRuntime })
+    ok(
+      "doctor separates CaseForge launcher from VERDICT runtime",
+      explicitRuntime.launcherPath === launcherPath &&
+        explicitRuntime.runtimeSource === "VERDICT_BIN" &&
+        explicitRuntime.runtimePath === realpathSync(fakeRuntime) &&
+        explicitRuntime.runtimeVersion === "0.0.0-agent-test",
+    )
+    const nonRuntime = resolveVerdictRuntime({ ...process.env, VERDICT_BIN: process.execPath })
+    ok("doctor rejects non-verdict executables", !nonRuntime.runtimePath && /not a VERDICT runtime/.test(nonRuntime.reason ?? ""))
+    const recursiveRuntime = resolveVerdictRuntime({ ...process.env, VERDICT_BIN: launcherPath })
+    ok("doctor flags recursive VERDICT_BIN", recursiveRuntime.recursive === true && !recursiveRuntime.runtimePath)
+  } finally {
+    rmSync(runtimeDir, { recursive: true, force: true })
+  }
   ok("selected local doctor honors endpoint override", selectedLocalEndpoint(routes["spark-ollama"], { VERDICT_LLM_BASEURL: "http://spark.local:11434/v1" }) === "http://spark.local:11434/v1")
   ok("selected local doctor falls back to route endpoint", selectedLocalEndpoint(routes["spark-ollama"], {}) === routes["spark-ollama"].base_url)
+  const modelRoutesText = readFileSync(fileURLToPath(new URL("../configs/model-routes.yaml", import.meta.url)), "utf8")
+  const staleEmbeddedRuntimePhrase = ["embedded", "opencode", "engine"].join(" ")
+  ok("ChatGPT OAuth route is documented as external runtime", /external VERDICT runtime/.test(modelRoutesText) && !modelRoutesText.includes(staleEmbeddedRuntimePhrase))
   const operatorSmoke = readFileSync(fileURLToPath(new URL("../scripts/operator-chatgpt-smoke.sh", import.meta.url)), "utf8")
   const localRouteSmoke = readFileSync(fileURLToPath(new URL("../scripts/local-route-readiness-smoke.sh", import.meta.url)), "utf8")
   ok("operator smoke checks ChatGPT OAuth auth status", /auth status/.test(operatorSmoke))
@@ -65,6 +100,14 @@ console.log("route config:")
   ok("operator smoke pins Dev VERDICT case store", /FIND_EVIL_HOME="\$\{DFIR_HOME\}\/\.project-local\/findevil"/.test(operatorSmoke) && /FINDEVIL_HOME="\$\{FIND_EVIL_HOME\}"/.test(operatorSmoke))
   ok("operator smoke verifies the produced Dev VERDICT case", /\.project-local\/findevil/.test(operatorSmoke) && /verify "\$\{after\}"/.test(operatorSmoke))
   ok("local route smoke is separate from ChatGPT OAuth", /CASEFORGE_LOCAL_ROUTE/.test(localRouteSmoke) && /doctor --route "\$\{route\}"/.test(localRouteSmoke) && /selected local endpoint down/.test(localRouteSmoke))
+  const setup = readFileSync(fileURLToPath(new URL("../scripts/setup.sh", import.meta.url)), "utf8")
+  ok(
+    "setup installs verdict runtime without following existing symlinks",
+    /DEST="\$HOME\/\.local\/bin\/verdict"/.test(setup) &&
+      /rm -f "\$DEST"/.test(setup) &&
+      /install -m 755 "\$BIN" "\$DEST"/.test(setup) &&
+      !/cp "\$BIN" "\$HOME\/\.local\/bin\/verdict"/.test(setup),
+  )
   const launcher = readFileSync(fileURLToPath(new URL("../bin/verdict", import.meta.url)), "utf8")
   ok("verdict launcher delegates to external runtime", !/caseforge\/engine|DEFAULT_BIN|VERDICT_WS|build-engine/.test(launcher))
   ok("verdict launcher does not fall back to generic opencode", !/type -P -a opencode|\.opencode\/bin\/opencode|install verdict\/opencode/.test(launcher))

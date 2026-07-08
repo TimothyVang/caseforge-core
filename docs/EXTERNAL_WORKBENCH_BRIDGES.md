@@ -3,14 +3,14 @@
 > caseforge is headless. It bridges to external examiner workbenches; it does
 > not depend on them, and it does not embed their GUI logic.
 
-## 1. Posture: Headless Engine
+## 1. Posture: Headless Controller
 
-caseforge-core is a headless DFIR engine. It runs the same on a Linux
+caseforge-core is a headless DFIR controller. It runs the same on a Linux
 laptop, a DGX/Spark box, a SIFT workstation, a server, or a CI fixture runner —
 with **no examiner GUI dependency**. All capability is driven through the CLI,
 the SDK, VERDICT MCP tools, and the agent loop.
 
-Staying headless is a deliberate architectural choice: it keeps the engine
+Staying headless is a deliberate architectural choice: it keeps the controller
 portable, scriptable, CI-runnable, and free of workbench-specific coupling.
 
 ## 2. Bridge, Don't Depend
@@ -20,7 +20,7 @@ workbench is a **bridge**, not a dependency:
 
 - caseforge produces portable, verifiable outputs — structured findings and the run artifacts (`verdict.json`, `coverage_manifest.json`, `run.manifest.json`, `manifest_verify.json`, `audit.jsonl`).
 - An external workbench can consume those outputs as evidence-backed, custody-verified inputs to its own review process.
-- The bridge flows outputs **outward**; the engine does not reach inward to a workbench's GUI, case DB, or internal modules.
+- The bridge flows outputs **outward**; the controller does not reach inward to a workbench's GUI, case DB, or internal modules.
 
 This keeps the trust boundary clean: the workbench reviews what caseforge
 produced without caseforge inheriting the workbench's coupling or attack surface.
