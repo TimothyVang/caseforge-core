@@ -60,16 +60,28 @@ export function resolveEvidenceInput(evidencePath: string): ResolvedEvidenceInpu
     throw new Error(`evidence directory is empty: ${evidencePath}`)
   }
 
-  if (supportedEvidenceNames(inventory).length === 0) {
+  const supported = supportedEvidenceNames(inventory)
+  if (supported.length === 0) {
     throw new Error(
       `evidence directory has no supported case_open image (${CASE_OPEN_EXTENSIONS.join(", ")}): ${evidencePath}` +
         (inventory.length ? `; found: ${inventory.join(", ")}` : ""),
     )
   }
 
+  // findevil-mcp_case_open requires a REGULAR FILE (not a directory). Prefer the
+  // first supported inventory member by CASE_OPEN_EXTENSIONS priority so the
+  // agent prompt never hands the directory path to case_open.
+  const primaryName = [...supported].sort(
+    (a, b) => caseOpenExtensionPriority(a) - caseOpenExtensionPriority(b) || a.localeCompare(b),
+  )[0]
+  if (!primaryName) {
+    throw new Error(`evidence directory has no supported case_open image: ${evidencePath}`)
+  }
+  const primaryPath = join(evidencePath, primaryName)
+
   return {
     requestedPath: evidencePath,
-    caseOpenPath: evidencePath,
+    caseOpenPath: primaryPath,
     inventory,
     isDirectory: true,
   }
@@ -77,11 +89,23 @@ export function resolveEvidenceInput(evidencePath: string): ResolvedEvidenceInpu
 
 function evidenceToolHint(evidence: ResolvedEvidenceInput, findevilHome?: string): string {
   if (evidence.isDirectory) {
-    const supported = supportedEvidenceNames(evidence.inventory).sort((a, b) => caseOpenExtensionPriority(a) - caseOpenExtensionPriority(b) || a.localeCompare(b))
+    const supported = supportedEvidenceNames(evidence.inventory).sort(
+      (a, b) => caseOpenExtensionPriority(a) - caseOpenExtensionPriority(b) || a.localeCompare(b),
+    )
+    const fullPaths = supported.map((name) => join(evidence.requestedPath, name))
+    const openAll =
+      fullPaths.length > 1
+        ? ` Then call findevil-mcp_case_open (or the matching per-artifact tool) on EVERY remaining inventory file in order: ${fullPaths
+            .slice(1)
+            .map((p) => `'${p}'`)
+            .join(", ")}. Never pass the directory path '${evidence.requestedPath}' to case_open — it must be a regular file.`
+        : ` Never pass the directory path '${evidence.requestedPath}' to case_open — it must be a regular file.`
     return (
-      `Evidence type hint: directory input. Call findevil-mcp_case_open with image_path exactly '${evidence.caseOpenPath}', then classify every supported artifact in the inventory` +
-      (supported.length ? ` (${supported.join(", ")})` : "") +
-      ` before deciding the scoped verdict. Do not collapse the directory to only one file.\n`
+      `Evidence type hint: directory of artifacts. Call findevil-mcp_case_open with image_path exactly '${evidence.caseOpenPath}' first` +
+      (supported.length ? ` (inventory basenames: ${supported.join(", ")})` : "") +
+      `.` +
+      openAll +
+      ` For each .evtx file, call findevil-mcp_evtx_query without an eids filter first (survey Event IDs), then focused re-queries. Do not collapse multi-file evidence to a single file when deciding the scoped verdict.\n`
     )
   }
 
@@ -303,7 +327,7 @@ export function resolveEvtxFallbackPath(evidence: ResolvedEvidenceInput): string
   return evidence.requestedPath
 }
 
-function runLocalEvtxAutoFallback(evidence: ResolvedEvidenceInput, env: NodeJS.ProcessEnv): string | undefined {
+function runLocalEvtxAutoFallback(evidence: ResolvedEvidenceInput, env: NodeJS.ProcessEnv, mode: "primary" | "fallback" = "fallback"): string | undefined {
   const fallbackPath = resolveEvtxFallbackPath(evidence)
   if (!fallbackPath) return undefined
   const dfirHome = env.VERDICT_DFIR_HOME
@@ -317,9 +341,15 @@ function runLocalEvtxAutoFallback(evidence: ResolvedEvidenceInput, env: NodeJS.P
   const multi = evidence.isDirectory
     ? ` (directory scope — find_evil_auto will open every EVTX under ${fallbackPath})`
     : ""
-  console.error(
-    `[caseforge] agent run did not produce a complete sealed EVTX run; using deterministic local EVTX auto-runner fallback${multi}.`,
-  )
+  if (mode === "primary") {
+    console.error(
+      `[caseforge] local EVTX primary path: deterministic find_evil_auto engine${multi} (custody-first; set CASEFORGE_FORCE_AGENT=1 to force opencode agent).`,
+    )
+  } else {
+    console.error(
+      `[caseforge] agent run did not produce a complete sealed EVTX run; using deterministic local EVTX auto-runner fallback${multi}.`,
+    )
+  }
   const result = spawnSync(
     "python3",
     [auto, "--local", "--unattended", "--no-report", "--signer", "ed25519", "--run-summary", summaryPath, fallbackPath],
@@ -576,7 +606,8 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
     `2. Then perform the reason+seal phase directly with MCP tool calls. If you have verified cited findings, use verify_finding, judge_findings, and correlate_findings. If you do not have verified cited findings, skip finding_approved and seal the audited tool outputs only. Always run findevil-agent-mcp_audit_verify, then SEAL with findevil-agent-mcp_manifest_finalize (write run.manifest.json into the case directory), then call findevil-agent-mcp_manifest_verify. Do NOT pass signer:'stub' to manifest_finalize — omit signer (the default is the real offline-verifiable ed25519 local signature) or pass signer:'ed25519'; a stub placeholder never satisfies custody. Call findevil-agent-mcp_manifest_verify with the argument named manifest_path set to the run.manifest.json path.\n` +
     (memoryStorePath ? `3. Use MEMORY_STORE_PATH exactly as '${memoryStorePath}' for every memory_recall or memory_remember call; never use ~/.local/state/findevil/memory.sqlite in this run.\n` : "") +
     `Use only the VERDICT forensic MCP tools with their exact opencode names: findevil-mcp_<tool> and findevil-agent-mcp_<tool>. ` +
-    `Open the supplied evidence first with findevil-mcp_case_open using image_path exactly '${evidence.caseOpenPath}'; never call or invent findevil-agent-mcp_case_open, and never guess alternate image names such as evidence.dd or evidence.e01. ` +
+    `Open the supplied evidence first with findevil-mcp_case_open using image_path exactly '${evidence.caseOpenPath}' (must be a regular file, never a directory); never call or invent findevil-agent-mcp_case_open, and never guess alternate image names such as evidence.dd or evidence.e01. ` +
+    `If case_open fails, fix the path and retry — do not stop with prose-only analysis. ` +
     `Every tool call name must start with findevil-mcp_ or findevil-agent-mcp_. There is no tool named run; do not call a run tool, task tool, skill tool, todowrite tool, or slash command. ` +
     `Use findevil-mcp_* for evidence/artifact tools and findevil-agent-mcp_* only for reasoning, judging, correlation, memory, and manifest sealing. Manifest tools are ONLY findevil-agent-mcp_manifest_finalize and findevil-agent-mcp_manifest_verify; never call findevil-mcp_manifest_finalize or findevil-mcp_manifest_verify. ` +
     `Call MCP tools directly with structured arguments; do not type MCP tool names into shell/bash and do not print JSON examples instead of making real tool calls. ` +
@@ -586,6 +617,21 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
     `Negative-control discipline: suspicious filenames, planted strings, topic notes, archives named passwords, and sinkhole/parked-domain lookups are non-reportable decoy leads unless independent execution, persistence, credential access, C2, or data-movement evidence exists. ` +
     `Scope the verdict to SUSPICIOUS / INDETERMINATE / NO_EVIL. ` +
     `The investigation is NOT complete unless manifest_verify reports overall:true and a real run.manifest.json plus audit.jsonl exist in the produced case directory — do not stop before the manifest is finalized and verified. After those files exist and overall:true, end the turn.`
+
+  // Local EVTX: custody-first engine as primary (gpt-oss/opencode often fabricates MCP).
+  // Set CASEFORGE_FORCE_AGENT=1 to force the opencode agent path instead.
+  const forceAgent = process.env.CASEFORGE_FORCE_AGENT === "1"
+  if (!forceAgent && routeLocation(route) === "local" && resolveEvtxFallbackPath(evidence)) {
+    console.error(`[caseforge] route=${routeId} model=${modelRef} privacy=${mode} evidence=${evidenceClass}`)
+    console.error(`[caseforge] evidence=${evidence.requestedPath}`)
+    if (evidence.caseOpenPath !== evidence.requestedPath) console.error(`[caseforge] case_open=${evidence.caseOpenPath}`)
+    const engineDir = runLocalEvtxAutoFallback(evidence, env, "primary")
+    if (engineDir) {
+      console.error(`\n[caseforge] verifying primary engine run: ${engineDir}`)
+      return await verify([engineDir])
+    }
+    console.error("[caseforge] primary engine path failed; falling through to opencode agent")
+  }
 
   console.error(`[caseforge] route=${routeId} model=${modelRef} privacy=${mode} evidence=${evidenceClass}`)
   console.error(`[caseforge] evidence=${evidence.requestedPath}`)
