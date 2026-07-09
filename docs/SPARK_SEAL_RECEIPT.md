@@ -247,3 +247,28 @@ Agent ran `findevil-mcp_evtx_query` only; never sealed audit/manifest → incomp
   technique pack numbers** were produced; do not claim exceed.
 - That opencode #15 is insufficient: available-tool errors fired; residual is model tool-name
   garbling / incomplete seal sequence, not a missing binary alone (after attempt 1 fix).
+
+## Milestone 26 — offline gates residual (no Spark)
+
+**Date:** 2026-07-09  
+**Branch:** `agent/m26-offline-gates`  
+**Scope:** model-independent offline verification only. Spark / Ollama /  
+`spark-local-seal-smoke` **not** run.
+
+### Offline results (quoted)
+
+- `npm run typecheck` — ok (SDK + TUI build; CLI `tsc --noEmit`)
+- `node scripts/selftest.mjs` — **127 passed, 0 failed**
+- `caseforge doctor` — required items mostly ok; selected local endpoint **MISS**
+  (`http://SPARK-HOST:11434/v1` down — expected offline)
+- DE_1102 fixture present at  
+  `verdict/dev/evidence/DE_1102_security_log_cleared.evtx` (1 118 208 bytes);
+  selftest covers 1102 audit→finding assembly without agent/MCP
+
+### Residual (explicit — do not invent)
+
+`CASEFORGE_FORCE_AGENT=1` agent-path seal (`used_fallback=0`) remains **Spark-gated**.
+It requires a live Ollama endpoint + `scripts/spark-local-seal-smoke.sh` (optionally
+`CASEFORGE_SPARK_SMOKE_REQUIRE_AGENT=1`). Offline m26 does **not** claim
+`used_fallback=0`; last FORCE_AGENT scorecard remains m24 (`used_fallback=1` under
+REQUIRE_AGENT).
