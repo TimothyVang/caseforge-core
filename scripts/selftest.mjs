@@ -128,6 +128,13 @@ exit 64
       /case incomplete \(no run\.manifest\.json\)/.test(sparkSealSmoke) &&
       /not bare-baseURL 404/.test(sparkSealSmoke),
   )
+  ok(
+    "spark-local-seal-smoke prefers VERDICT_BIN/engine dist over PATH slash-version hang",
+    /resolve_verdict_runtime/.test(sparkSealSmoke) &&
+      /VERDICT_BIN=/.test(sparkSealSmoke) &&
+      /engine\/packages\/opencode\/dist/.test(sparkSealSmoke) &&
+      /git ls-remote/.test(sparkSealSmoke),
+  )
   const setup = readFileSync(fileURLToPath(new URL("../scripts/setup.sh", import.meta.url)), "utf8")
   ok(
     "setup installs verdict runtime without following existing symlinks",

@@ -10,6 +10,11 @@
 # Env:
 #   CASEFORGE_SPARK_SMOKE_REQUIRE_AGENT=1 — FAIL if deterministic EVTX fallback ran
 #     (used_fallback=1). Default 0 keeps m13 PASS-with-fallback behavior.
+#   VERDICT_BIN / OPENCODE_BIN — preferred external runtime. When unset, prefer
+#     engine/packages/opencode/dist/*/bin/opencode over PATH so a stale
+#     ~/.local/bin/verdict with a slash-containing version cannot hang npm
+#     (git ls-remote on 0.0.0-agent/…).
+#   VERDICT_LLM_MODEL — optional model override (e.g. llama3.1:8b when gpt-oss hangs).
 #
 # Never fabricates seal success. If Spark Ollama is unreachable, exits 0 with SKIP.
 set -euo pipefail
@@ -55,6 +60,71 @@ resolve_dfir_home() {
       return 0
     fi
   done
+  return 1
+}
+
+# Prefer a non-slash versioned runtime. PATH ~/.local/bin/verdict may be a
+# preview build stamped from branch names containing '/' (e.g. agent/m4-…),
+# which hangs the harness on git ls-remote during plugin pin install.
+# Dist is often only built in the primary worktree (gitignored), so also scan
+# other worktrees of this repo. Reject candidates whose --version contains '/'.
+runtime_version_ok() {
+  local bin="$1" ver
+  [ -x "${bin}" ] || return 1
+  ver="$("${bin}" --version 2>/dev/null | head -1 || true)"
+  # Empty version: still allow (some stubs); only reject slash-stamped previews.
+  if [[ "${ver}" == *"/"* ]]; then
+    return 1
+  fi
+  return 0
+}
+
+dist_candidates_under() {
+  local base="$1"
+  printf '%s\n' \
+    "${base}/engine/packages/opencode/dist/opencode-linux-x64/bin/opencode" \
+    "${base}/engine/packages/opencode/dist/opencode-linux-arm64/bin/opencode" \
+    "${base}/engine/packages/opencode/dist/opencode-darwin-arm64/bin/opencode" \
+    "${base}/engine/packages/opencode/dist/opencode-darwin-x64/bin/opencode"
+}
+
+resolve_verdict_runtime() {
+  local candidate wt
+  for candidate in "${VERDICT_BIN:-}" "${OPENCODE_BIN:-}"; do
+    [ -n "${candidate}" ] || continue
+    if runtime_version_ok "${candidate}"; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+  done
+  while IFS= read -r candidate; do
+    [ -n "${candidate}" ] || continue
+    if runtime_version_ok "${candidate}"; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+  done < <(dist_candidates_under "${ROOT}")
+  if command -v git >/dev/null 2>&1; then
+    while IFS= read -r wt; do
+      [ -n "${wt}" ] || continue
+      [ "${wt}" = "${ROOT}" ] && continue
+      while IFS= read -r candidate; do
+        [ -n "${candidate}" ] || continue
+        if runtime_version_ok "${candidate}"; then
+          printf '%s\n' "${candidate}"
+          return 0
+        fi
+      done < <(dist_candidates_under "${wt}")
+    done < <(git -C "${ROOT}" worktree list --porcelain 2>/dev/null | awk '/^worktree / { print substr($0, 10) }')
+  fi
+  # Last resort: PATH, but only slash-free versions.
+  while IFS= read -r candidate; do
+    [ -n "${candidate}" ] || continue
+    if runtime_version_ok "${candidate}"; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+  done < <( { type -P -a verdict 2>/dev/null || true; type -P -a opencode 2>/dev/null || true; } )
   return 1
 }
 
@@ -118,6 +188,21 @@ fi
 DFIR_HOME="$(resolve_dfir_home)" || fail "set VERDICT_DFIR_HOME to a toolkit checkout with scripts/run-mcp-rust.sh"
 [ -f "${DFIR_HOME}/scripts/run-mcp-rust.sh" ] || fail "VERDICT toolkit launcher missing: ${DFIR_HOME}/scripts/run-mcp-rust.sh"
 
+if runtime_bin="$(resolve_verdict_runtime)"; then
+  export VERDICT_BIN="${runtime_bin}"
+  export OPENCODE_BIN="${OPENCODE_BIN:-${runtime_bin}}"
+  say "VERDICT_BIN=${VERDICT_BIN}"
+  runtime_ver="$("${VERDICT_BIN}" --version 2>/dev/null | head -1 || true)"
+  if [ -n "${runtime_ver}" ]; then
+    say "runtime version: ${runtime_ver}"
+    if [[ "${runtime_ver}" == *"/"* ]]; then
+      say "WARN: runtime version contains '/' (npm may treat it as github owner/repo and hang on git ls-remote); prefer engine dist or rebuild with sanitized channel"
+    fi
+  fi
+else
+  say "WARN: no engine dist runtime found; doctor/investigate will use PATH verdict (slash-version hang risk)"
+fi
+
 FIND_EVIL_HOME="${FINDEVIL_HOME:-${DFIR_HOME}/.project-local/findevil}"
 CASES_DIR="${FIND_EVIL_HOME}/cases"
 
@@ -142,6 +227,9 @@ set +e
 doctor_out="$(
   VERDICT_DFIR_HOME="${DFIR_HOME}" \
   VERDICT_LLM_BASEURL="${endpoint}" \
+  VERDICT_BIN="${VERDICT_BIN:-}" \
+  OPENCODE_BIN="${OPENCODE_BIN:-}" \
+  VERDICT_LLM_MODEL="${VERDICT_LLM_MODEL:-}" \
   node "${CLI}" doctor --route "${route_id}" 2>&1
 )"
 doctor_rc=$?
@@ -184,6 +272,9 @@ if command -v timeout >/dev/null 2>&1; then
   VERDICT_DFIR_HOME="${DFIR_HOME}" \
   FINDEVIL_HOME="${FIND_EVIL_HOME}" \
   VERDICT_LLM_BASEURL="${endpoint}" \
+  VERDICT_BIN="${VERDICT_BIN:-}" \
+  OPENCODE_BIN="${OPENCODE_BIN:-}" \
+  VERDICT_LLM_MODEL="${VERDICT_LLM_MODEL:-}" \
   timeout "${timeout_s}" \
     node "${CLI}" investigate "${EVIDENCE}" \
       --privacy local-only \
@@ -195,6 +286,9 @@ else
   VERDICT_DFIR_HOME="${DFIR_HOME}" \
   FINDEVIL_HOME="${FIND_EVIL_HOME}" \
   VERDICT_LLM_BASEURL="${endpoint}" \
+  VERDICT_BIN="${VERDICT_BIN:-}" \
+  OPENCODE_BIN="${OPENCODE_BIN:-}" \
+  VERDICT_LLM_MODEL="${VERDICT_LLM_MODEL:-}" \
     node "${CLI}" investigate "${EVIDENCE}" \
       --privacy local-only \
       --evidence sensitive \
