@@ -145,8 +145,31 @@ async function finalizeVerdictJson(runDir: string): Promise<void> {
   )
 }
 
+/**
+ * Path handed to find_evil_auto.py for the deterministic EVTX fallback.
+ *
+ * - Single .evtx file → that file.
+ * - Directory containing one or more .evtx → the directory itself, so
+ *   find_evil_auto inventory mode opens every EVTX (not just the first
+ *   lexicographic name). That is what made win-lateral-movement miss the WMI
+ *   file when the agent collapsed case_open and the fallback could not fire
+ *   because caseOpenPath was a directory (no .evtx suffix).
+ * - Non-EVTX / empty → undefined (no EVTX fallback).
+ */
+export function resolveEvtxFallbackPath(evidence: ResolvedEvidenceInput): string | undefined {
+  if (!evidence.isDirectory) {
+    return evidence.caseOpenPath.toLowerCase().endsWith(".evtx") ? evidence.caseOpenPath : undefined
+  }
+  const supported = supportedEvidenceNames(evidence.inventory)
+  const evtxNames = supported.filter((name) => name.toLowerCase().endsWith(".evtx"))
+  if (evtxNames.length === 0) return undefined
+  // Directory path → inventory mode enumerates all EVTX under the case dir.
+  return evidence.requestedPath
+}
+
 function runLocalEvtxAutoFallback(evidence: ResolvedEvidenceInput, env: NodeJS.ProcessEnv): string | undefined {
-  if (!evidence.caseOpenPath.toLowerCase().endsWith(".evtx")) return undefined
+  const fallbackPath = resolveEvtxFallbackPath(evidence)
+  if (!fallbackPath) return undefined
   const dfirHome = env.VERDICT_DFIR_HOME
   if (!dfirHome) return undefined
   const auto = join(dfirHome, "scripts", "find_evil_auto.py")
@@ -155,10 +178,15 @@ function runLocalEvtxAutoFallback(evidence: ResolvedEvidenceInput, env: NodeJS.P
   const summaryDir = env.TMPDIR ?? process.cwd()
   mkdirSync(summaryDir, { recursive: true })
   const summaryPath = join(summaryDir, `caseforge-auto-fallback-${Date.now()}.json`)
-  console.error("[caseforge] agent run did not produce a complete sealed EVTX run; using deterministic local EVTX auto-runner fallback.")
+  const multi = evidence.isDirectory
+    ? ` (directory scope — find_evil_auto will open every EVTX under ${fallbackPath})`
+    : ""
+  console.error(
+    `[caseforge] agent run did not produce a complete sealed EVTX run; using deterministic local EVTX auto-runner fallback${multi}.`,
+  )
   const result = spawnSync(
     "python3",
-    [auto, "--local", "--unattended", "--no-report", "--signer", "ed25519", "--run-summary", summaryPath, evidence.caseOpenPath],
+    [auto, "--local", "--unattended", "--no-report", "--signer", "ed25519", "--run-summary", summaryPath, fallbackPath],
     { cwd: dfirHome, env, stdio: "inherit" },
   )
   if (result.status !== 0) {
