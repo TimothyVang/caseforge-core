@@ -2,12 +2,13 @@ import { test } from "node:test"
 import assert from "node:assert/strict"
 import { keyOf, reduce, initialState } from "../dist/src/app.js"
 
-test("keyOf maps arrows, vim keys, enter, back, quit", () => {
+test("keyOf maps arrows, vim keys, enter, back, quit, tab", () => {
   assert.equal(keyOf("\x1b[A"), "up")
   assert.equal(keyOf("k"), "up")
   assert.equal(keyOf("\x1b[B"), "down")
   assert.equal(keyOf("j"), "down")
   assert.equal(keyOf("\r"), "enter")
+  assert.equal(keyOf("\t"), "tab")
   assert.equal(keyOf("q"), "back")
   assert.equal(keyOf("\x03"), "quit")
   assert.equal(keyOf("z"), "other")
@@ -81,4 +82,30 @@ test("ctrl-c quits from the detail view", () => {
   s = reduce(s, "enter", 3, 2) // -> detail
   s = reduce(s, "quit", 3, 2)
   assert.equal(s.quit, true)
+})
+test("tab switches case panel between findings and timeline", () => {
+  let s = reduce(initialState, "enter", 3) // case
+  assert.equal(s.panel, "findings")
+  s = reduce(s, "tab", 3, 2, 4)
+  assert.equal(s.panel, "timeline")
+  s = reduce(s, "tab", 3, 2, 4)
+  assert.equal(s.panel, "findings")
+})
+test("timeline panel cursor moves and enter opens timeline-detail", () => {
+  let s = reduce(initialState, "enter", 3) // case
+  s = reduce(s, "tab", 3, 2, 3) // timeline panel
+  assert.equal(s.panel, "timeline")
+  s = reduce(s, "down", 3, 2, 3)
+  assert.equal(s.timeline, 1)
+  s = reduce(s, "enter", 3, 2, 3)
+  assert.equal(s.view, "timeline-detail")
+  s = reduce(s, "back", 3, 2, 3)
+  assert.equal(s.view, "case")
+  assert.equal(s.panel, "timeline")
+})
+test("enter on empty timeline panel is a no-op", () => {
+  let s = reduce(initialState, "enter", 3)
+  s = reduce(s, "tab", 3, 2, 0)
+  s = reduce(s, "enter", 3, 2, 0)
+  assert.equal(s.view, "case")
 })

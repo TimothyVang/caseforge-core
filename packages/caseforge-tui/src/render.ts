@@ -51,8 +51,9 @@ function custodyOf(report: CaseView["custody"], fid?: string): FindingCustody | 
   return report.findings.find((f) => f.finding_id === fid)
 }
 
-export function renderFindings(v: CaseView, selected?: number): string {
-  const head = `${LILAC}${BOLD}FINDINGS${RESET}`
+export function renderFindings(v: CaseView, selected?: number, focused = true): string {
+  const focus = focused ? `${LILAC}▸${RESET} ` : ""
+  const head = `${focus}${LILAC}${BOLD}FINDINGS${RESET}`
   const findings = v.verdict?.findings ?? []
   if (findings.length === 0) return `${head}\n  ${NOT_PRODUCED}`
   const rows = findings.map((f, i) => {
@@ -146,14 +147,38 @@ export function renderAudit(v: CaseView): string {
   return `${head}  ${DIM}${v.audit.length} records ·${RESET} ${chain}\n${tail.join("\n")}`
 }
 
-export function renderTimeline(v: CaseView): string {
-  const head = `${LILAC}${BOLD}TIMELINE${RESET}`
+export function renderTimeline(v: CaseView, selected?: number, focused = false): string {
+  const focus = focused ? `${LILAC}▸${RESET} ` : ""
+  const head = `${focus}${LILAC}${BOLD}TIMELINE${RESET}`
   if (v.timeline.length === 0) return `${head}\n  ${NOT_PRODUCED}`
-  const rows = v.timeline
-    .slice(0, 8)
-    .map((e) => `  ${tierColor(e.confidence)}●${RESET} ${DIM}${e.ts ?? "?"}${RESET} ${BOLD}${e.technique ?? "-"}${RESET} ${(e.summary ?? "").slice(0, 48)}`)
+  const rows = v.timeline.slice(0, 8).map((e, i) => {
+    const arrow = i === selected && focused ? `${LILAC}▶${RESET}` : " "
+    return `${arrow} ${tierColor(e.confidence)}●${RESET} ${DIM}${e.ts ?? "?"}${RESET} ${BOLD}${e.technique ?? "-"}${RESET} ${(e.summary ?? "").slice(0, 48)}`
+  })
   const more = v.timeline.length > 8 ? `\n  ${DIM}… ${v.timeline.length - 8} more events${RESET}` : ""
   return `${head}  ${DIM}${v.timeline.length} events${RESET}\n${rows.join("\n")}${more}`
+}
+
+/** Full detail for one timeline event. Honest degradation when the index is
+ * out of range or the timeline was not produced. */
+export function renderTimelineDetail(v: CaseView, index: number): string {
+  const head = `${LILAC}${BOLD}TIMELINE DETAIL${RESET}`
+  if (v.timeline.length === 0) return `${head}\n  ${NOT_PRODUCED}`
+  const e = v.timeline[index]
+  if (!e) return `${head}\n  ${NOT_PRODUCED}`
+  const conf = e.confidence ?? "?"
+  const tech = e.technique ?? "unmapped"
+  const ts = e.ts ?? `${DIM}(no timestamp)${RESET}`
+  const sig = e.significance ?? `${DIM}not produced${RESET}`
+  const summary = (e.summary && e.summary.trim() !== "" ? e.summary : undefined) ?? `${DIM}(no summary)${RESET}`
+  return [
+    head,
+    `  ${tierColor(conf)}●${RESET} ${BOLD}${tech}${RESET} ${DIM}${conf}${RESET}`,
+    `  time         ${ts}`,
+    `  significance ${sig}`,
+    `  summary`,
+    `    ${summary}`,
+  ].join("\n")
 }
 
 export function renderPicker(entries: RunEntry[], cursor?: number): string {
@@ -170,9 +195,10 @@ export function renderPicker(entries: RunEntry[], cursor?: number): string {
   return `${head}  ${DIM}${entries.length}${RESET}\n${rows.join("\n")}`
 }
 
-export function renderFooter(view: "picker" | "case" | "detail"): string {
+export function renderFooter(view: "picker" | "case" | "detail" | "timeline-detail"): string {
   if (view === "picker") return `${DIM}↑↓ move · enter open · q quit${RESET}`
-  if (view === "case") return `${DIM}↑↓ finding · enter detail · q back${RESET}`
+  if (view === "case")
+    return `${DIM}tab panel · ↑↓ move · enter detail · q back${RESET}`
   return `${DIM}q back · ctrl-c quit${RESET}`
 }
 
@@ -184,8 +210,20 @@ export function renderCustodyBanner(v: CaseView): string {
   return `${CORAL}${BOLD}⚠ CUSTODY NOT VERIFIED${RESET} ${DIM}— ${msgs.join("; ")}; findings below are not backed by valid custody${RESET}`
 }
 
-export function renderScreen(v: CaseView, selectedFinding?: number): string {
-  return [renderHeader(v), renderCustodyBanner(v), renderFindings(v, selectedFinding), renderTimeline(v), renderCoverage(v), renderAudit(v)]
+export function renderScreen(
+  v: CaseView,
+  selectedFinding?: number,
+  selectedTimeline?: number,
+  panel: "findings" | "timeline" = "findings",
+): string {
+  return [
+    renderHeader(v),
+    renderCustodyBanner(v),
+    renderFindings(v, selectedFinding, panel === "findings"),
+    renderTimeline(v, selectedTimeline, panel === "timeline"),
+    renderCoverage(v),
+    renderAudit(v),
+  ]
     .filter((s) => s.length > 0)
     .join("\n\n")
 }
