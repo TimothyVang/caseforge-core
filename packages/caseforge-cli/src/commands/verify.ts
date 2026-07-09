@@ -1,6 +1,6 @@
 /**
  * `caseforge verify <run-dir>` — validate VERDICT run artifacts + custody, and
- * check the custody of every finding in verdict.json (cited + replay-verified).
+ * check the custody of every finding in verdict.json (cited and replay-clean).
  */
 import { validateRun, readVerdict, checkFindingsCustody } from "@verdict/caseforge-sdk"
 
@@ -27,8 +27,9 @@ export async function verify(args: string[]): Promise<number> {
     console.log(
       `  findings: ${fc.total} total, ${fc.cited} cited, ${fc.uncited} uncited, ${fc.replayVerified} replay-verified, ${fc.replayFailed} replay-failed`,
     )
-    console.log(`  findings custody: ${fc.ok ? "OK — every anchored finding is cited + replay-verified" : "FAILED"}`)
+    console.log(`  findings custody: ${fc.ok ? "OK — every anchored finding has an accepted citation and no replay failed" : "FAILED"}`)
     for (const f of fc.findings) {
+      if (f.citation === "audit_record") console.log(`    - ${f.finding_id}: audit-record citation`)
       if (f.reason !== "ok" && f.reason.includes("vetoed")) console.log(`    ! ${f.finding_id}: ${f.reason}`)
       if (f.replayVerified === false) console.log(`    ! ${f.finding_id}: ${f.reason}`)
     }

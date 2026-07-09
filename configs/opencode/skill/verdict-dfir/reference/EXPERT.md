@@ -36,7 +36,7 @@ If the answer is no, convert the required edit into one of:
 - a new typed evidence connector;
 - a stronger playbook step;
 - a machine-checkable expert rule;
-- a report QA check;
+- an audit or manifest verification check;
 - an explicit escalation condition.
 
 ## Scope tiers

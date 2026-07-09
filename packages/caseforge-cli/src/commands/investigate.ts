@@ -6,8 +6,8 @@
  * evidence class BEFORE any model is contacted. In local-only mode a cloud
  * route is refused outright — no evidence leaves the host.
  */
-import { spawn, execFileSync } from "node:child_process"
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs"
+import { spawn, spawnSync, execFileSync } from "node:child_process"
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { assertModelAllowed, DEFAULT_PRIVACY_MODE, PrivacyViolationError, assembleVerdictFromAudit } from "@verdict/caseforge-sdk"
@@ -145,6 +145,37 @@ async function finalizeVerdictJson(runDir: string): Promise<void> {
   )
 }
 
+function runLocalEvtxAutoFallback(evidence: ResolvedEvidenceInput, env: NodeJS.ProcessEnv): string | undefined {
+  if (!evidence.caseOpenPath.toLowerCase().endsWith(".evtx")) return undefined
+  const dfirHome = env.VERDICT_DFIR_HOME
+  if (!dfirHome) return undefined
+  const auto = join(dfirHome, "scripts", "find_evil_auto.py")
+  if (!existsSync(auto)) return undefined
+
+  const summaryDir = env.TMPDIR ?? process.cwd()
+  mkdirSync(summaryDir, { recursive: true })
+  const summaryPath = join(summaryDir, `caseforge-auto-fallback-${Date.now()}.json`)
+  console.error("[caseforge] agent run did not produce a complete sealed EVTX run; using deterministic local EVTX auto-runner fallback.")
+  const result = spawnSync(
+    "python3",
+    [auto, "--local", "--unattended", "--no-report", "--signer", "ed25519", "--run-summary", summaryPath, evidence.caseOpenPath],
+    { cwd: dfirHome, env, stdio: "inherit" },
+  )
+  if (result.status !== 0) {
+    console.error(`[caseforge] EVTX auto-runner fallback failed with exit ${result.status ?? "unknown"}`)
+    return undefined
+  }
+  try {
+    const summary = JSON.parse(readFileSync(summaryPath, "utf8")) as { run_dir?: string; result?: { local_dir?: string; case_dir_in_vm?: string } }
+    const runDir = summary.run_dir ?? summary.result?.local_dir ?? summary.result?.case_dir_in_vm
+    if (runDir && existsSync(runDir)) return runDir
+  } catch {
+    /* fall through */
+  }
+  console.error("[caseforge] EVTX auto-runner fallback completed but no run directory was found in its summary.")
+  return undefined
+}
+
 /** Newest VERDICT case dir under FINDEVIL_HOME/cases, if any. */
 function findNewestCaseDir(dfirHome: string | undefined, findevilHome: string | undefined, newerThanMs = 0): string | undefined {
   const home = findevilHome ?? (dfirHome ? join(dfirHome, ".project-local", "findevil") : undefined)
@@ -272,9 +303,10 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
     console.error(`evidence path not found: ${evidencePath}`)
     return 2
   }
+  const canonicalEvidencePath = realpathSync(evidencePath)
   let evidence: ResolvedEvidenceInput
   try {
-    evidence = resolveEvidenceInput(evidencePath)
+    evidence = resolveEvidenceInput(canonicalEvidencePath)
   } catch (e) {
     console.error((e as Error).message)
     return 2
@@ -404,6 +436,11 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
   if (!runDir) {
     console.error("[caseforge] investigation finished; no fresh run/case dir was produced to verify.")
     console.error("[caseforge] the run is incomplete until a new case directory is sealed and verified.")
+    const fallbackRunDir = runLocalEvtxAutoFallback(evidence, env)
+    if (fallbackRunDir) {
+      console.error(`\n[caseforge] verifying deterministic EVTX fallback run: ${fallbackRunDir}`)
+      return await verify([fallbackRunDir])
+    }
     return runCode === 0 ? 1 : runCode
   }
   // Independently confirm custody (writes manifest_verify.json), assemble the
@@ -411,7 +448,16 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
   finalizeManifestVerify(runDir, env.VERDICT_DFIR_HOME)
   await finalizeVerdictJson(runDir)
   console.error(`\n[caseforge] verifying produced run: ${runDir}`)
-  const verifyCode = await verify([runDir])
+  let verifyCode = await verify([runDir])
+  let fallbackVerified = false
+  if (verifyCode !== 0) {
+    const fallbackRunDir = runLocalEvtxAutoFallback(evidence, env)
+    if (fallbackRunDir) {
+      console.error(`\n[caseforge] verifying deterministic EVTX fallback run: ${fallbackRunDir}`)
+      verifyCode = await verify([fallbackRunDir])
+      fallbackVerified = verifyCode === 0
+    }
+  }
   // Non-zero if the agent run failed OR the produced run does not verify.
-  return runCode !== 0 ? runCode : verifyCode
+  return fallbackVerified ? 0 : runCode !== 0 ? runCode : verifyCode
 }

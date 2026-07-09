@@ -18,6 +18,8 @@ import {
   validateRun,
   loadAudit,
   verifyCitations,
+  assembleVerdictFromAudit,
+  checkFindingsCustody,
   REQUIRED_ARTIFACTS,
 } from "../packages/caseforge-sdk/dist/src/index.js"
 
@@ -275,6 +277,74 @@ console.log("tui workbench:")
   ok("tui: custody-invalid run re-verifies as invalid", ci.validation.status === "custody-invalid" && ci.validation.custodyValid === false)
   const { renderCustodyBanner } = await import("../packages/caseforge-tui/dist/src/render.js")
   ok("tui: invalid custody warns over findings; valid does not", /CUSTODY NOT VERIFIED/.test(renderCustodyBanner(ci)) && renderCustodyBanner(v) === "")
+}
+
+console.log("audit-derived verdict assembly (local-model fallback):")
+{
+  const run = mkdtempSync(join(tmpdir(), "caseforge-audit-verdict-"))
+  try {
+    const evtxPath = join(run, "DE_1102_security_log_cleared.evtx")
+    const auditLine = JSON.stringify({
+      kind: "tool_call_output",
+      seq: 7,
+      payload: {
+        tool_name: "evtx_query",
+        arguments: { case_id: "case-evtx-1102", evtx_path: evtxPath, eids: [1102], limit: 100 },
+        output_summary: {
+          parse_errors: 0,
+          records_seen: 112,
+          row_count: 1,
+          rows: [{ channel: "Security", event_id: 1102, record_id: 1, ts: "2019-03-19T23:35:07.524202Z" }],
+        },
+      },
+      prev_hash: "",
+    })
+    writeFileSync(join(run, "audit.jsonl"), `${auditLine}\n`)
+    const doc = await assembleVerdictFromAudit(run)
+    ok(
+      "EVTX 1102 audit output assembles to SUSPICIOUS finding with audit-record citation",
+      doc?.verdict === "SUSPICIOUS" && (doc?.findings?.length ?? 0) >= 1 && doc.findings[0].citation_kind === "audit_record",
+    )
+    const custody = checkFindingsCustody(doc)
+    ok(
+      "audit-record finding passes custody without a tool_call_id",
+      custody.ok === true && custody.findings.length >= 1 && custody.findings.every((f) => f.citation === "audit_record" || f.citation === "tool_call"),
+    )
+    // A non-1102 EVTX row must NOT fabricate a finding.
+    const benign = mkdtempSync(join(tmpdir(), "caseforge-audit-benign-"))
+    try {
+      const benignLine = JSON.stringify({
+        kind: "tool_call_output",
+        seq: 1,
+        payload: {
+          tool_name: "evtx_query",
+          arguments: { case_id: "c", evtx_path: join(benign, "x.evtx"), eids: [4624], limit: 100 },
+          output_summary: { row_count: 1, rows: [{ channel: "Security", event_id: 4624, record_id: 5 }] },
+        },
+      })
+      writeFileSync(join(benign, "audit.jsonl"), `${benignLine}\n`)
+      const benignDoc = await assembleVerdictFromAudit(benign)
+      ok("non-1102 EVTX row does not fabricate a finding", (benignDoc?.findings?.length ?? 0) === 0)
+    } finally {
+      rmSync(benign, { recursive: true, force: true })
+    }
+  } finally {
+    rmSync(run, { recursive: true, force: true })
+  }
+}
+
+console.log("investigate local-model wiring:")
+{
+  const src = readFileSync(fileURLToPath(new URL("../packages/caseforge-cli/src/commands/investigate.ts", import.meta.url)), "utf8")
+  ok("investigate canonicalizes the evidence path (realpathSync)", /realpathSync\(evidencePath\)/.test(src) && /resolveEvidenceInput\(canonicalEvidencePath\)/.test(src))
+  ok(
+    "investigate falls back to the deterministic EVTX auto-runner when the agent run is incomplete",
+    /function runLocalEvtxAutoFallback/.test(src) && /find_evil_auto\.py/.test(src) && /runLocalEvtxAutoFallback\(evidence, env\)/.test(src),
+  )
+  const smoke = readFileSync(fileURLToPath(new URL("../scripts/run-local-llm-smoke.sh", import.meta.url)), "utf8")
+  ok("local-model smoke targets a local-only Spark Ollama route", /--privacy local-only/.test(smoke) && /CASEFORGE_LOCAL_ROUTE:-spark-ollama/.test(smoke))
+  const routes = readFileSync(fileURLToPath(new URL("../configs/model-routes.yaml", import.meta.url)), "utf8")
+  ok("sensitive default route is the local Spark Ollama route", /sensitive_default:\s*spark-ollama/.test(routes) && /model:\s*gpt-oss:20b/.test(routes))
 }
 
 console.log(`\n${pass} passed, ${fail} failed`)

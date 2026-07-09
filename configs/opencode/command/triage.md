@@ -24,4 +24,4 @@ Do not emit disk-content Findings from `case_open` alone — custody-only disk r
 
 Negative-control gate: suspicious filenames, planted strings, topic notes, archives named "passwords", and sinkhole/parked-domain lookups are non-reportable decoy leads unless independent behavioral evidence exists. Do not turn name/content bait into malware, credential dumping, C2, staging, or exfiltration Findings.
 
-After both pools return Findings, hand off to the reason/seal phase (`/verdict`).
+After both pools return Findings, hand off to the reason/seal phase (`verdict` workflow label).

@@ -120,7 +120,19 @@ identical.)
 - **Verified on x86 Linux:** caseforge builds, `doctor`/`models`/`verify` work,
   privacy routing enforces local-only, and the agent→MCP→tool chain executes real
   forensic tools with a capable model.
-- **NOT verified:** anything on **DGX Spark / GB10 / ARM64** — the ARM builds of
-  `verdict` and `findevil-mcp`, Ollama-on-Spark serving, the remote-endpoint path,
-  and end-to-end `caseforge investigate` producing a sealed case over the LAN.
-  Treat this doc as a build recipe to validate on the Spark, not a tested result.
+- **Verified on the DGX Spark (GB10 / ARM64), 2026-07-08:** native `aarch64` builds
+  of `verdict` and `findevil-mcp`, Ollama-on-Spark serving `gpt-oss:120b` on the
+  GB10 GPU, and end-to-end `caseforge investigate` running **entirely on-box**
+  against a local (`localhost`) endpoint — producing a **custody-verified** sealed
+  run (`auto-95f54362`, `manifest_verify.overall = true`, ed25519 signature verified,
+  `EXIT_CODE=0`). See [`SPARK_INVESTIGATION_RESULTS.md`](./SPARK_INVESTIGATION_RESULTS.md)
+  for the full receipt and the observed-vs-expected technique scorecard.
+- **Caveat on that run:** the verdict came from caseforge's **deterministic EVTX
+  fallback** (the gpt-oss agent run did not seal), it read **only 1 of the case's 2
+  EVTX files**, and the verdict is **INDETERMINATE** — the policy default for
+  single-source EVTX. It is a real, hash-chained local run, **not** a confirmed
+  intrusion or a full-battery detection. The results doc records the detection gap
+  (unread WMI file, missing T1047 target) and the fixes it implies.
+- **Still NOT verified:** the **remote-endpoint / over-the-LAN** topology described
+  above (client box driving a Spark across the network) and a **complete sealed
+  agent run** (as opposed to the EVTX fallback) on the Spark.
