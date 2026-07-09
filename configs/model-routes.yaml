@@ -108,6 +108,19 @@ routes:
   #   caseforge investigate <path> --privacy cloud-ok --evidence synthetic --route xai-grok
   # Override model: VERDICT_LLM_MODEL is NOT used for cloud routes; set model
   # below or add a second route (e.g. xai-grok-mini) if you need another Grok id.
+  # SuperGrok *subscription* OAuth (preferred for personal Grok plans).
+  # Does NOT use XAI_API_KEY. Login:
+  #   caseforge auth login --provider xai --method headless
+  #   caseforge auth login --provider xai --method browser
+  xai-grok-oauth:
+    provider: xai
+    model: grok-3
+    api_key: null
+    auth: xai-oauth
+    tool_calling: true
+    privacy_locations: [cloud]
+
+  # Platform API key billing (console.x.ai API keys) — not subscription OAuth.
   xai-grok:
     provider: xai
     base_url: https://api.x.ai/v1

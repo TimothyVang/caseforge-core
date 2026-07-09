@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url"
 import { parse as parseYaml } from "yaml"
 import type { ModelCandidate, ProviderLocation } from "@verdict/caseforge-sdk"
 
-export type RouteAuth = "chatgpt-oauth" | "api-key"
+export type RouteAuth = "chatgpt-oauth" | "xai-oauth" | "api-key"
 
 export interface RouteConfig {
   provider: string
@@ -61,6 +61,11 @@ export function normalizeOpenAiCompatBaseUrl(baseUrl: string): string {
 
 export function routeRequiresChatGptOAuth(route: RouteConfig): boolean {
   return route.auth === "chatgpt-oauth"
+}
+
+/** SuperGrok subscription OAuth via verdict/opencode xAI plugin (not XAI_API_KEY). */
+export function routeRequiresXaiOAuth(route: RouteConfig): boolean {
+  return route.auth === "xai-oauth"
 }
 
 /**

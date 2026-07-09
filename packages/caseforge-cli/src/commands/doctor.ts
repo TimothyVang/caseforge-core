@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { execFileSync } from "node:child_process"
 import { DEFAULT_PRIVACY_MODE } from "@verdict/caseforge-sdk"
 import { caseForgeLauncherPath, chatGptOAuthStatus, resolveVerdictRuntime } from "../chatgpt-auth.js"
+import { xaiOAuthStatus } from "../xai-auth.js"
 import {
   configsDir,
   loadRoutes,
@@ -12,6 +13,7 @@ import {
   opencodeProfileDir,
   routeLocation,
   routeRequiresChatGptOAuth,
+  routeRequiresXaiOAuth,
   type RouteConfig,
 } from "../config.js"
 
@@ -110,6 +112,12 @@ export async function doctor(opts: DoctorOpts = {}): Promise<number> {
       if (routeRequiresChatGptOAuth(route)) {
         const status = chatGptOAuthStatus()
         status.ok ? ok("ChatGPT OAuth credential present for provider 'openai'") : miss(`ChatGPT OAuth credential missing: ${status.reason}`)
+      }
+      if (routeRequiresXaiOAuth(route)) {
+        const status = xaiOAuthStatus()
+        status.ok
+          ? ok("SuperGrok OAuth credential present for provider 'xai'")
+          : miss(`SuperGrok OAuth credential missing: ${status.reason}`)
       }
     }
   } else {

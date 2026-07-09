@@ -14,24 +14,55 @@ internet. It is **not** Ollama on a DGX Spark and **not** `local-only` privacy.
 **Never** send seized/private case evidence to Grok under `cloud-ok` unless the
 operator has explicitly approved cloud egress and classified evidence correctly.
 
-## Setup
+## Setup — SuperGrok **subscription OAuth** (preferred)
 
-1. Get an API key from the [xAI console](https://console.x.ai/).
-2. Export it (never commit):
+Uses the same OAuth path as the Grok CLI (device code / browser), **not**
+`XAI_API_KEY` platform billing.
+
+1. Ensure `VERDICT_BIN` points at a recent verdict/opencode binary (with xAI plugin).
+2. Log in:
 
 ```bash
-export XAI_API_KEY=xai-...
+# Headless / remote (device code — open URL on any phone/laptop):
+caseforge auth login --provider xai --method headless
+
+# Or loopback browser on this machine (port 56121):
+caseforge auth login --provider xai --method browser
+
+caseforge auth status --provider xai
 ```
 
-3. Routes (in `configs/model-routes.yaml`):
+3. Investigate with the **oauth** route:
 
-| Route id | Model ref passed to engine | Notes |
-|----------|----------------------------|--------|
-| `xai-grok` | `xai/grok-3` | Default Grok cloud route |
-| `xai-grok-mini` | `xai/grok-3-mini` | Smaller / cheaper |
+```bash
+export VERDICT_DFIR_HOME=/path/to/dev-verdict
+export VERDICT_BIN=/path/to/verdict
 
-Provider registry: `xai` in `configs/provider-capabilities.yaml` (`XAI_API_KEY`).
-Locked profile: `configs/opencode/opencode.json` includes an `xai` provider block.
+caseforge investigate fixtures/synthetic \
+  --privacy cloud-ok \
+  --evidence synthetic \
+  --route xai-grok-oauth
+```
+
+Credentials live in `~/.local/share/opencode/auth.json` under provider `xai`
+(`type: oauth`). Route `xai-grok-oauth` **deletes** `XAI_API_KEY` from the child
+env so API keys cannot silently override subscription auth.
+
+### Alternative — platform API key (not subscription)
+
+```bash
+export XAI_API_KEY=xai-...   # from https://console.x.ai/ API keys
+caseforge investigate fixtures/synthetic \
+  --privacy cloud-ok --evidence synthetic --route xai-grok
+```
+
+## Routes
+
+| Route id | Auth | Model ref | Notes |
+|----------|------|-----------|--------|
+| **`xai-grok-oauth`** | SuperGrok OAuth | `xai/grok-3` | **Preferred** for Grok subscription |
+| `xai-grok` | `XAI_API_KEY` | `xai/grok-3` | Platform API billing |
+| `xai-grok-mini` | `XAI_API_KEY` | `xai/grok-3-mini` | Platform API, smaller |
 
 ## Commands
 
@@ -42,33 +73,11 @@ caseforge models --privacy local-only
 caseforge models --privacy cloud-ok --evidence synthetic
 ```
 
-Investigate with Grok cloud (synthetic fixture example):
+Smoke helper (OAuth first; falls back to API key):
 
 ```bash
-export XAI_API_KEY=...
-export VERDICT_DFIR_HOME=/path/to/dev-verdict   # toolkit
-export VERDICT_BIN=/path/to/verdict              # engine binary
-
-caseforge investigate fixtures/synthetic \
-  --privacy cloud-ok \
-  --evidence synthetic \
-  --route xai-grok
-```
-
-Or DE_1102 lab EVTX (operator-approved public sample):
-
-```bash
-caseforge investigate "$VERDICT_DFIR_HOME/evidence/DE_1102_security_log_cleared.evtx" \
-  --privacy cloud-ok \
-  --evidence public \
-  --route xai-grok
-```
-
-Smoke helper:
-
-```bash
-export XAI_API_KEY=...
-bash scripts/grok-cloud-smoke.sh
+# After: caseforge auth login --provider xai --method headless
+CASEFORGE_GROK_ROUTE=xai-grok-oauth bash scripts/grok-cloud-smoke.sh
 ```
 
 ## vs Spark / local

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # grok-cloud-smoke.sh — time-bounded caseforge investigate via xAI Grok cloud.
 #
-# Prerequisites:
-#   XAI_API_KEY set
+# Prerequisites (default route xai-grok-oauth):
+#   caseforge auth login --provider xai --method headless|browser
+#   OR for API key routes: XAI_API_KEY set + CASEFORGE_GROK_ROUTE=xai-grok
 #   VERDICT_DFIR_HOME, VERDICT_BIN (or caseforge bin on PATH)
 #   Network access to api.x.ai
 #
@@ -13,8 +14,15 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-if [ -z "${XAI_API_KEY:-}" ]; then
-  echo "SKIP: XAI_API_KEY unset — export a key from https://console.x.ai/"
+ROUTE="${CASEFORGE_GROK_ROUTE:-xai-grok-oauth}"
+# Prefer SuperGrok OAuth; allow API key only for xai-grok / xai-grok-mini.
+if [ "$ROUTE" = "xai-grok-oauth" ]; then
+  if ! node packages/caseforge-cli/dist/src/cli.js auth status --provider xai >/dev/null 2>&1; then
+    echo "SKIP: SuperGrok OAuth not configured — run: caseforge auth login --provider xai --method headless"
+    exit 0
+  fi
+elif [ -z "${XAI_API_KEY:-}" ]; then
+  echo "SKIP: XAI_API_KEY unset (and route is not xai-grok-oauth)"
   exit 0
 fi
 
@@ -45,7 +53,6 @@ if [ -z "$BIN" ]; then
   fi
 fi
 
-ROUTE="${CASEFORGE_GROK_ROUTE:-xai-grok}"
 EVIDENCE="${CASEFORGE_GROK_EVIDENCE:-fixtures/synthetic}"
 if [ ! -e "$EVIDENCE" ] && [ -e "${VERDICT_DFIR_HOME}/evidence/DE_1102_security_log_cleared.evtx" ]; then
   EVIDENCE="${VERDICT_DFIR_HOME}/evidence/DE_1102_security_log_cleared.evtx"
@@ -57,7 +64,11 @@ fi
 echo "==> Grok cloud smoke"
 echo "    route=$ROUTE evidence=$EVIDENCE class=$EVIDENCE_CLASS privacy=cloud-ok"
 echo "    VERDICT_DFIR_HOME=$VERDICT_DFIR_HOME"
-echo "    XAI_API_KEY is set (len=${#XAI_API_KEY})"
+if [ "$ROUTE" = "xai-grok-oauth" ]; then
+  echo "    auth=SuperGrok OAuth (XAI_API_KEY cleared for child)"
+else
+  echo "    XAI_API_KEY is set (len=${#XAI_API_KEY})"
+fi
 
 # shellcheck disable=SC2086
 $BIN models --privacy cloud-ok --evidence "$EVIDENCE_CLASS" || true

@@ -46,7 +46,7 @@ function usage(): void {
   console.log(`caseforge — headless DFIR agentic core
 
   doctor                          check environment + config prerequisites
-  auth status|login|logout         manage ChatGPT subscription OAuth for verdict
+  auth status|login|logout         manage ChatGPT / SuperGrok subscription OAuth
   models [--privacy M] [--evidence C]   list routes and privacy permissions
   investigate <evidence-path>     run a privacy-gated DFIR investigation
       [--privacy local-only|redacted-cloud|cloud-ok] [--evidence synthetic|public|approved|sensitive]
