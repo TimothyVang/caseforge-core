@@ -51,11 +51,11 @@ function custodyOf(report: CaseView["custody"], fid?: string): FindingCustody | 
   return report.findings.find((f) => f.finding_id === fid)
 }
 
-export function renderFindings(v: CaseView): string {
+export function renderFindings(v: CaseView, selected?: number): string {
   const head = `${LILAC}${BOLD}FINDINGS${RESET}`
   const findings = v.verdict?.findings ?? []
   if (findings.length === 0) return `${head}\n  ${NOT_PRODUCED}`
-  const rows = findings.map((f) => {
+  const rows = findings.map((f, i) => {
     const conf = (f.confidence ?? "?").toString()
     const tech = (f["mitre_technique"] as string | undefined) ?? (f["named_technique"] as string | undefined) ?? "unmapped"
     const desc = ((f.description ?? "") as string).slice(0, 64)
@@ -63,13 +63,67 @@ export function renderFindings(v: CaseView): string {
     const custStr = cust
       ? `${cust.cited ? SEAFOAM + "cited" : CORAL + "UNCITED"}${RESET} ${DIM}tool_call_id ${f.tool_call_id ?? "?"}${RESET}`
       : `${DIM}tool_call_id ${f.tool_call_id ?? "?"}${RESET}`
+    const arrow = i === selected ? `${LILAC}▶${RESET}` : " "
     return [
-      `  ${tierColor(conf)}●${RESET} ${BOLD}${tech}${RESET} ${DIM}${conf}${RESET}`,
+      `${arrow} ${tierColor(conf)}●${RESET} ${BOLD}${tech}${RESET} ${DIM}${conf}${RESET}`,
       `      ${desc}`,
       `      ${custStr}`,
     ].join("\n")
   })
   return `${head}\n${rows.join("\n")}`
+}
+
+/** Full detail for one finding: complete (untruncated) description, custody
+ * citation status, tool_call_id, output_sha256, and the matching audit.jsonl
+ * record. Honest degradation: when a finding is absent (no verdict / index out
+ * of range) or uncited, it shows a "not produced"/"not cited" state instead of
+ * fabricating a tool_call_id or output hash. */
+export function renderFindingDetail(v: CaseView, index: number): string {
+  const head = `${LILAC}${BOLD}FINDING DETAIL${RESET}`
+  const findings = v.verdict?.findings ?? []
+  const f = findings[index]
+  if (!f) return `${head}\n  ${NOT_PRODUCED}`
+
+  const fid = f.finding_id ?? "?"
+  const conf = (f.confidence ?? "?").toString()
+  const tech = (f["mitre_technique"] as string | undefined) ?? (f["named_technique"] as string | undefined) ?? "unmapped"
+  const desc = ((f.description ?? "") as string) || `${DIM}(no description)${RESET}`
+
+  const tcid = typeof f.tool_call_id === "string" && f.tool_call_id.trim() !== "" ? f.tool_call_id : undefined
+  const sha = typeof f["output_sha256"] === "string" && (f["output_sha256"] as string).trim() !== "" ? (f["output_sha256"] as string) : undefined
+  const cust = custodyOf(v.custody, f.finding_id)
+
+  const citeStatus = cust
+    ? cust.cited
+      ? `${SEAFOAM}cited${RESET}`
+      : `${CORAL}not cited${RESET}`
+    : tcid
+      ? `${SEAFOAM}cited${RESET}`
+      : `${CORAL}not cited${RESET}`
+  const reason = cust && cust.reason ? ` ${DIM}— ${cust.reason}${RESET}` : ""
+
+  const tcLine = tcid
+    ? `${DIM}tool_call_id${RESET}  ${tcid}`
+    : `${DIM}tool_call_id${RESET}  ${CORAL}not cited${RESET}`
+  const shaLine = sha
+    ? `${DIM}output_sha256${RESET} ${sha}`
+    : `${DIM}output_sha256${RESET} ${NOT_PRODUCED}`
+
+  const rec = tcid ? v.audit.find((r) => r.tool_call_id === tcid) : undefined
+  const auditLine = rec
+    ? `${DIM}audit record${RESET}  #${rec.seq ?? "?"} ${rec.kind ?? "?"} ${DIM}${rec.ts ?? ""}${RESET}`
+    : `${DIM}audit record${RESET}  ${DIM}no matching audit.jsonl record${RESET}`
+
+  return [
+    head,
+    `  ${tierColor(conf)}●${RESET} ${BOLD}${tech}${RESET} ${DIM}${conf}${RESET}  ${DIM}${fid}${RESET}`,
+    `  ${desc}`,
+    ``,
+    `  custody  ${citeStatus}${reason}`,
+    `  ${tcLine}`,
+    `  ${shaLine}`,
+    `  ${auditLine}`,
+  ].join("\n")
 }
 
 export function renderCoverage(v: CaseView): string {
@@ -116,10 +170,10 @@ export function renderPicker(entries: RunEntry[], cursor?: number): string {
   return `${head}  ${DIM}${entries.length}${RESET}\n${rows.join("\n")}`
 }
 
-export function renderFooter(view: "picker" | "case"): string {
-  return view === "picker"
-    ? `${DIM}↑↓ move · enter open · q quit${RESET}`
-    : `${DIM}q back · ctrl-c quit${RESET}`
+export function renderFooter(view: "picker" | "case" | "detail"): string {
+  if (view === "picker") return `${DIM}↑↓ move · enter open · q quit${RESET}`
+  if (view === "case") return `${DIM}↑↓ finding · enter detail · q back${RESET}`
+  return `${DIM}q back · ctrl-c quit${RESET}`
 }
 
 export function renderCustodyBanner(v: CaseView): string {
@@ -130,8 +184,8 @@ export function renderCustodyBanner(v: CaseView): string {
   return `${CORAL}${BOLD}⚠ CUSTODY NOT VERIFIED${RESET} ${DIM}— ${msgs.join("; ")}; findings below are not backed by valid custody${RESET}`
 }
 
-export function renderScreen(v: CaseView): string {
-  return [renderHeader(v), renderCustodyBanner(v), renderFindings(v), renderTimeline(v), renderCoverage(v), renderAudit(v)]
+export function renderScreen(v: CaseView, selectedFinding?: number): string {
+  return [renderHeader(v), renderCustodyBanner(v), renderFindings(v, selectedFinding), renderTimeline(v), renderCoverage(v), renderAudit(v)]
     .filter((s) => s.length > 0)
     .join("\n\n")
 }
