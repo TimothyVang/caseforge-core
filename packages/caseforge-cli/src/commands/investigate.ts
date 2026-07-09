@@ -13,7 +13,15 @@ import { join } from "node:path"
 import { assertModelAllowed, DEFAULT_PRIVACY_MODE, PrivacyViolationError, assembleVerdictFromAudit } from "@verdict/caseforge-sdk"
 import type { EvidenceClass, PrivacyMode } from "@verdict/caseforge-sdk"
 import { chatGptOAuthStatus, printChatGptOAuthSetup, verdictLauncherPath } from "../chatgpt-auth.js"
-import { loadRoutes, loadRoutingPolicy, resolveCandidate, opencodeProfileDir, routeLocation, routeRequiresChatGptOAuth } from "../config.js"
+import {
+  loadRoutes,
+  loadRoutingPolicy,
+  normalizeOpenAiCompatBaseUrl,
+  resolveCandidate,
+  opencodeProfileDir,
+  routeLocation,
+  routeRequiresChatGptOAuth,
+} from "../config.js"
 import { verify } from "./verify.js"
 
 const CASE_OPEN_EXTENSIONS = [".evtx", ".pcap", ".pcapng", ".e01", ".dd", ".raw", ".aff", ".mem", ".ova", ".zip"]
@@ -395,7 +403,11 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
     // still "local" for privacy — evidence stays on your own hardware. Let an
     // explicit VERDICT_LLM_BASEURL / VERDICT_LLM_MODEL env override the route so
     // one route can target localhost or a Spark by just exporting the endpoint.
-    env.VERDICT_LLM_BASEURL = process.env.VERDICT_LLM_BASEURL ?? route.base_url ?? "http://localhost:11434/v1"
+    // openai-compatible client POSTs ${baseURL}/chat/completions — bare Ollama
+    // roots (no /v1) 404; normalize so VERDICT_LLM_BASEURL=http://host:11434 works.
+    env.VERDICT_LLM_BASEURL = normalizeOpenAiCompatBaseUrl(
+      process.env.VERDICT_LLM_BASEURL ?? route.base_url ?? "http://localhost:11434/v1",
+    )
     env.VERDICT_LLM_APIKEY = process.env.VERDICT_LLM_APIKEY ?? "local"
     env.VERDICT_LLM_MODEL = process.env.VERDICT_LLM_MODEL ?? route.model
   } else {

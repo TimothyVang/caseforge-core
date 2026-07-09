@@ -87,7 +87,14 @@ exit 64
     rmSync(runtimeDir, { recursive: true, force: true })
   }
   ok("selected local doctor honors endpoint override", selectedLocalEndpoint(routes["spark-ollama"], { VERDICT_LLM_BASEURL: "http://spark.local:11434/v1" }) === "http://spark.local:11434/v1")
+  ok(
+    "selected local doctor normalizes bare Ollama root to /v1 (m13 404 root cause)",
+    selectedLocalEndpoint(routes["spark-ollama"], { VERDICT_LLM_BASEURL: "http://spark.local:11434" }) === "http://spark.local:11434/v1",
+  )
   ok("selected local doctor falls back to route endpoint", selectedLocalEndpoint(routes["spark-ollama"], {}) === routes["spark-ollama"].base_url)
+  const { normalizeOpenAiCompatBaseUrl } = await import("../packages/caseforge-cli/dist/src/config.js")
+  ok("normalize leaves existing /v1 alone", normalizeOpenAiCompatBaseUrl("http://host:11434/v1/") === "http://host:11434/v1")
+  ok("normalize leaves non-root paths alone", normalizeOpenAiCompatBaseUrl("https://api.z.ai/api/paas/v4") === "https://api.z.ai/api/paas/v4")
   const modelRoutesText = readFileSync(fileURLToPath(new URL("../configs/model-routes.yaml", import.meta.url)), "utf8")
   const staleEmbeddedRuntimePhrase = ["embedded", "opencode", "engine"].join(" ")
   ok("ChatGPT OAuth route is documented as external runtime", /external VERDICT runtime/.test(modelRoutesText) && !modelRoutesText.includes(staleEmbeddedRuntimePhrase))

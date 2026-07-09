@@ -59,6 +59,29 @@ manifest_verify = PASS
 - That the agent path is healthy (this run saw agent fail with HTTP 404 before fallback).
 - Offline-only seal-proof scripts (`local-ed25519-seal-proof.sh`) are a different gate.
 
+## m15 root cause (agent 404) — caseforge fix
+
+m13 set `VERDICT_LLM_BASEURL=http://10.126.60.100:11434` **without** `/v1`.
+`configs/opencode/opencode.json` wires `@ai-sdk/openai-compatible` with that
+baseURL; the client POSTs `${baseURL}/chat/completions` →
+`http://…:11434/chat/completions`. Ollama only serves OpenAI-compat under
+`/v1/chat/completions`, so the agent path fails immediately with
+`Error: Not Found: 404 page not found` and investigate falls back to the
+deterministic EVTX auto-runner (`used_fallback=1`).
+
+Doctor greened the bare root because it rewrites `/v1` → `/api/tags` for the
+liveness probe (or hits the Ollama root `200 Ollama is running`), which is not
+the OpenAI chat path.
+
+**Caseforge-only fix (m15):** `normalizeOpenAiCompatBaseUrl` appends `/v1` when
+the URL path is empty/root — used by `investigate` (env passed to engine),
+`doctor` (`selectedLocalEndpoint`), and `spark-local-seal-smoke.sh`. Engine
+(opencode) does not need a URL rewrite; it correctly uses the provided baseURL.
+
+With bare-root normalized, agent may still hang/timeout on long Spark tool
+runs (m13 `/v1` attempt rc=124) — that is separate from the 404. Do not claim
+`used_fallback=0` without a fresh smoke that seals on the agent path.
+
 ## Prior attempt in the same session (not the quoted outcome)
 
 With `VERDICT_LLM_BASEURL=http://10.126.60.100:11434/v1`, investigate hung until the smoke timeout (rc=124). Case dir existed with only `case.json` (no `run.manifest.json`). Exact line from that attempt:
