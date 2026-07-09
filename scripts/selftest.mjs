@@ -42,7 +42,7 @@ ok("default fail-closed (unknown class, cloud-ok) blocks", decideModel(cloud, { 
 console.log("route config:")
 {
   const { loadRoutes, loadRoutingPolicy, routeLocation, routeRequiresChatGptOAuth } = await import("../packages/caseforge-cli/dist/src/config.js")
-  const { chooseRoute, resolveEvidenceInput } = await import("../packages/caseforge-cli/dist/src/commands/investigate.js")
+  const { chooseRoute, resolveEvidenceInput, resolveEvtxFallbackPath } = await import("../packages/caseforge-cli/dist/src/commands/investigate.js")
   const { selectedLocalEndpoint } = await import("../packages/caseforge-cli/dist/src/commands/doctor.js")
   const { caseForgeLauncherPath, resolveVerdictRuntime, verdictLauncherPath } = await import("../packages/caseforge-cli/dist/src/chatgpt-auth.js")
   const routes = loadRoutes()
@@ -123,6 +123,9 @@ exit 64
   ok("investigate prompt avoids helper tool confusion", /Every tool call name must start with findevil-mcp_/.test(investigateSrc) && /do not call a run tool, task tool, skill tool, todowrite tool/.test(investigateSrc))
   ok("investigate pins manifest tools to agent MCP", /Manifest tools are ONLY findevil-agent-mcp_manifest_finalize/.test(investigateSrc) && /never call findevil-mcp_manifest_finalize/.test(investigateSrc))
   ok("investigate requires verified manifest before complete", /manifest_verify reports overall:true/.test(investigateSrc) && /real run\.manifest\.json plus audit\.jsonl/.test(investigateSrc))
+  ok("investigate EVTX hint surveys before filtering (no hardcoded eids)", /Do NOT pass an eids filter on the first query/.test(investigateSrc) && !/eids \[1102\], and limit 100/.test(investigateSrc))
+  ok("investigate forbids stub signer and prefers ed25519 at seal", /Do NOT pass signer:'stub'/.test(investigateSrc) && /signer:'ed25519'/.test(investigateSrc))
+  ok("investigate names manifest_path arg at verify", /argument named manifest_path/.test(investigateSrc))
   const evidenceDir = mkdtempSync(join(tmpdir(), "caseforge-evidence-"))
   try {
     writeFileSync(join(evidenceDir, "manifest.json"), "{}")
@@ -138,8 +141,39 @@ exit 64
     writeFileSync(evtxFile, "tiny")
     const resolved = resolveEvidenceInput(evtxFile)
     ok("single EVTX evidence opens exact file", resolved.isDirectory === false && resolved.caseOpenPath === evtxFile)
+    ok(
+      "single EVTX fallback path is the file itself",
+      resolveEvtxFallbackPath(resolved) === evtxFile,
+    )
   } finally {
     rmSync(evtxDir, { recursive: true, force: true })
+  }
+  const multiEvtxDir = mkdtempSync(join(tmpdir(), "caseforge-multi-evtx-"))
+  try {
+    writeFileSync(join(multiEvtxDir, "LM_Remote_Service02_7045.evtx"), "tiny")
+    writeFileSync(join(multiEvtxDir, "LM_WMI_4624_4688_TargetHost.evtx"), "tiny")
+    writeFileSync(join(multiEvtxDir, "README.md"), "notes")
+    const resolved = resolveEvidenceInput(multiEvtxDir)
+    ok(
+      "multi-EVTX directory stays directory-scoped for case_open",
+      resolved.isDirectory === true &&
+        resolved.caseOpenPath === multiEvtxDir &&
+        resolved.inventory.includes("LM_WMI_4624_4688_TargetHost.evtx"),
+    )
+    ok(
+      "multi-EVTX fallback path is the directory (not first file only)",
+      resolveEvtxFallbackPath(resolved) === multiEvtxDir,
+    )
+  } finally {
+    rmSync(multiEvtxDir, { recursive: true, force: true })
+  }
+  const diskDir = mkdtempSync(join(tmpdir(), "caseforge-disk-only-"))
+  try {
+    writeFileSync(join(diskDir, "image.E01"), "tiny")
+    const resolved = resolveEvidenceInput(diskDir)
+    ok("non-EVTX directory has no EVTX fallback path", resolveEvtxFallbackPath(resolved) === undefined)
+  } finally {
+    rmSync(diskDir, { recursive: true, force: true })
   }
 }
 
@@ -340,6 +374,12 @@ console.log("investigate local-model wiring:")
   ok(
     "investigate falls back to the deterministic EVTX auto-runner when the agent run is incomplete",
     /function runLocalEvtxAutoFallback/.test(src) && /find_evil_auto\.py/.test(src) && /runLocalEvtxAutoFallback\(evidence, env\)/.test(src),
+  )
+  ok(
+    "investigate EVTX fallback scopes multi-file directories (not only first .evtx)",
+    /export function resolveEvtxFallbackPath/.test(src) &&
+      /find_evil_auto will open every EVTX/.test(src) &&
+      !/if \(!evidence\.caseOpenPath\.toLowerCase\(\)\.endsWith\("\.evtx"\)\) return undefined/.test(src),
   )
   const smoke = readFileSync(fileURLToPath(new URL("../scripts/run-local-llm-smoke.sh", import.meta.url)), "utf8")
   ok("local-model smoke targets a local-only Spark Ollama route", /--privacy local-only/.test(smoke) && /CASEFORGE_LOCAL_ROUTE:-spark-ollama/.test(smoke))
