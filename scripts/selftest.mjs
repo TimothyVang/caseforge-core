@@ -123,6 +123,9 @@ exit 64
   ok("investigate prompt avoids helper tool confusion", /Every tool call name must start with findevil-mcp_/.test(investigateSrc) && /do not call a run tool, task tool, skill tool, todowrite tool/.test(investigateSrc))
   ok("investigate pins manifest tools to agent MCP", /Manifest tools are ONLY findevil-agent-mcp_manifest_finalize/.test(investigateSrc) && /never call findevil-mcp_manifest_finalize/.test(investigateSrc))
   ok("investigate requires verified manifest before complete", /manifest_verify reports overall:true/.test(investigateSrc) && /real run\.manifest\.json plus audit\.jsonl/.test(investigateSrc))
+  ok("investigate EVTX hint surveys before filtering (no hardcoded eids)", /Do NOT pass an eids filter on the first query/.test(investigateSrc) && !/eids \[1102\], and limit 100/.test(investigateSrc))
+  ok("investigate forbids stub signer and prefers ed25519 at seal", /Do NOT pass signer:'stub'/.test(investigateSrc) && /signer:'ed25519'/.test(investigateSrc))
+  ok("investigate names manifest_path arg at verify", /argument named manifest_path/.test(investigateSrc))
   const evidenceDir = mkdtempSync(join(tmpdir(), "caseforge-evidence-"))
   try {
     writeFileSync(join(evidenceDir, "manifest.json"), "{}")

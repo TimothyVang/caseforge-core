@@ -82,8 +82,8 @@ function evidenceToolHint(evidence: ResolvedEvidenceInput, findevilHome?: string
       ? `After case_open returns case_id, set case_dir to '${findevilHome}/cases/' + case_id; audit_log_path to case_dir + '/audit.jsonl'; manifest_path to case_dir + '/run.manifest.json'. `
       : ""
     return (
-      `Evidence type hint: single EVTX. After findevil-mcp_case_open, call findevil-mcp_evtx_query with case_id from case_open, ` +
-      `evtx_path exactly '${evidence.caseOpenPath}', eids [1102], and limit 100. ` +
+      `Evidence type hint: single EVTX. After findevil-mcp_case_open, call findevil-mcp_evtx_query with case_id from case_open and ` +
+      `evtx_path exactly '${evidence.caseOpenPath}'. Do NOT pass an eids filter on the first query — survey which Event IDs are actually present (use a limit such as 500), then re-query focused on the DFIR-relevant ones you observed (for example 4624/4688 logon and process creation, 7045 service install, 1102 audit-log-cleared). Never assume a specific Event ID is present; a filter that matches nothing is not evidence of absence. ` +
       custodyHint +
       `Append the EVTX query result to audit_log_path with findevil-agent-mcp_audit_append kind 'tool_call_output' before sealing; use payload tool_name 'evtx_query', arguments, output or output_summary, and tool_call_id if the runtime exposes one. ` +
       `Do not invent output_hash or output_sha256 values. ` +
@@ -398,7 +398,7 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
     inventoryText +
     toolHint +
     `1. Perform the ${command} workflow directly with MCP tool calls: open the case, call the appropriate forensic MCP tools, and audit each important tool output with findevil-agent-mcp_audit_append.\n` +
-    `2. Then perform the reason+seal phase directly with MCP tool calls. If you have verified cited findings, use verify_finding, judge_findings, and correlate_findings. If you do not have verified cited findings, skip finding_approved and seal the audited tool outputs only. Always run findevil-agent-mcp_audit_verify, then SEAL with findevil-agent-mcp_manifest_finalize (write run.manifest.json into the case directory), then call findevil-agent-mcp_manifest_verify.\n` +
+    `2. Then perform the reason+seal phase directly with MCP tool calls. If you have verified cited findings, use verify_finding, judge_findings, and correlate_findings. If you do not have verified cited findings, skip finding_approved and seal the audited tool outputs only. Always run findevil-agent-mcp_audit_verify, then SEAL with findevil-agent-mcp_manifest_finalize (write run.manifest.json into the case directory), then call findevil-agent-mcp_manifest_verify. Do NOT pass signer:'stub' to manifest_finalize — omit signer (the default is the real offline-verifiable ed25519 local signature) or pass signer:'ed25519'; a stub placeholder never satisfies custody. Call findevil-agent-mcp_manifest_verify with the argument named manifest_path set to the run.manifest.json path.\n` +
     (memoryStorePath ? `3. Use MEMORY_STORE_PATH exactly as '${memoryStorePath}' for every memory_recall or memory_remember call; never use ~/.local/state/findevil/memory.sqlite in this run.\n` : "") +
     `Use only the VERDICT forensic MCP tools with their exact opencode names: findevil-mcp_<tool> and findevil-agent-mcp_<tool>. ` +
     `Open the supplied evidence first with findevil-mcp_case_open using image_path exactly '${evidence.caseOpenPath}'; never call or invent findevil-agent-mcp_case_open, and never guess alternate image names such as evidence.dd or evidence.e01. ` +
