@@ -8,7 +8,7 @@
  *  - failed manifest verification => custody-invalid
  *  - citation custody: unknown tool_call_id / mismatched hash => not verified
  */
-import { chmodSync, mkdtempSync, readFileSync, realpathSync, writeFileSync, rmSync } from "node:fs"
+import { chmodSync, mkdtempSync, readFileSync, realpathSync, writeFileSync, rmSync, statSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { fileURLToPath } from "node:url"
@@ -102,6 +102,19 @@ exit 64
   ok("operator smoke pins Dev VERDICT case store", /FIND_EVIL_HOME="\$\{DFIR_HOME\}\/\.project-local\/findevil"/.test(operatorSmoke) && /FINDEVIL_HOME="\$\{FIND_EVIL_HOME\}"/.test(operatorSmoke))
   ok("operator smoke verifies the produced Dev VERDICT case", /\.project-local\/findevil/.test(operatorSmoke) && /verify "\$\{after\}"/.test(operatorSmoke))
   ok("local route smoke is separate from ChatGPT OAuth", /CASEFORGE_LOCAL_ROUTE/.test(localRouteSmoke) && /doctor --route "\$\{route\}"/.test(localRouteSmoke) && /selected local endpoint down/.test(localRouteSmoke))
+  const sparkSealSmokePath = fileURLToPath(new URL("../scripts/spark-local-seal-smoke.sh", import.meta.url))
+  const sparkSealSmoke = readFileSync(sparkSealSmokePath, "utf8")
+  const sparkSealMode = statSync(sparkSealSmokePath).mode
+  ok("spark-local-seal-smoke exists and is executable", (sparkSealMode & 0o111) !== 0)
+  ok(
+    "spark-local-seal-smoke SKIPs when Spark endpoint is down (no evidence fabrication)",
+    /SKIP: spark down/.test(sparkSealSmoke) &&
+      /api\/tags/.test(sparkSealSmoke) &&
+      /curl -sS -m 2/.test(sparkSealSmoke) &&
+      /PASS: sealed with ed25519/.test(sparkSealSmoke) &&
+      /PASS: investigate completed via fallback \(not agent seal\)/.test(sparkSealSmoke) &&
+      /exit 0/.test(sparkSealSmoke),
+  )
   const setup = readFileSync(fileURLToPath(new URL("../scripts/setup.sh", import.meta.url)), "utf8")
   ok(
     "setup installs verdict runtime without following existing symlinks",
