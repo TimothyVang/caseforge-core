@@ -90,12 +90,16 @@ function evidenceToolHint(evidence: ResolvedEvidenceInput, findevilHome?: string
       ? `After case_open returns case_id, set case_dir to '${findevilHome}/cases/' + case_id; audit_log_path to case_dir + '/audit.jsonl'; manifest_path to case_dir + '/run.manifest.json'. `
       : ""
     return (
-      `Evidence type hint: single EVTX. After findevil-mcp_case_open, call findevil-mcp_evtx_query with case_id from case_open and ` +
-      `evtx_path exactly '${evidence.caseOpenPath}'. Do NOT pass an eids filter on the first query — survey which Event IDs are actually present (use a limit such as 500), then re-query focused on the DFIR-relevant ones you observed (for example 4624/4688 logon and process creation, 7045 service install, 1102 audit-log-cleared). Never assume a specific Event ID is present; a filter that matches nothing is not evidence of absence. ` +
+      `Evidence type hint: single EVTX. Run this mandatory tool sequence without stopping for user input and without printing JSON examples: ` +
+      `(A) findevil-mcp_case_open with image_path exactly '${evidence.caseOpenPath}'; ` +
+      `(B) findevil-mcp_evtx_query with case_id from case_open and evtx_path exactly '${evidence.caseOpenPath}' — Do NOT pass an eids filter on the first query (limit 500 survey); optional second focused query only if the survey shows DFIR-relevant Event IDs (e.g. 4624/4688/7045/1102); never assume an Event ID is present; ` +
+      `(C) findevil-agent-mcp_audit_append kind 'tool_call_output' for the EVTX query (payload tool_name 'evtx_query', arguments, output or output_summary; do not invent output_hash/output_sha256); ` +
+      `(D) findevil-agent-mcp_audit_verify; ` +
+      `(E) findevil-agent-mcp_manifest_finalize (omit signer or signer:'ed25519' — never signer:'stub') writing run.manifest.json into the case directory; ` +
+      `(F) findevil-agent-mcp_manifest_verify with manifest_path set to that run.manifest.json. ` +
       custodyHint +
-      `Append the EVTX query result to audit_log_path with findevil-agent-mcp_audit_append kind 'tool_call_output' before sealing; use payload tool_name 'evtx_query', arguments, output or output_summary, and tool_call_id if the runtime exposes one. ` +
-      `Do not invent output_hash or output_sha256 values. ` +
-      `Do not emit finding_approved unless verify_finding approved a cited finding. Do not call disk_mount or disk_extract_artifacts for a single EVTX file.\n`
+      `After (F) returns overall:true, stop. Do not wait for more instructions. Do not print tool calls as markdown/JSON code blocks — only real structured MCP tool calls. ` +
+      `For a single EVTX you may seal audited tool outputs without finding_approved when verify_finding was not run. Do not call disk_mount or disk_extract_artifacts for a single EVTX file.\n`
     )
   }
   if (lower.endsWith(".pcap") || lower.endsWith(".pcapng")) {
@@ -445,11 +449,12 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
     `Every tool call name must start with findevil-mcp_ or findevil-agent-mcp_. There is no tool named run; do not call a run tool, task tool, skill tool, todowrite tool, or slash command. ` +
     `Use findevil-mcp_* for evidence/artifact tools and findevil-agent-mcp_* only for reasoning, judging, correlation, memory, and manifest sealing. Manifest tools are ONLY findevil-agent-mcp_manifest_finalize and findevil-agent-mcp_manifest_verify; never call findevil-mcp_manifest_finalize or findevil-mcp_manifest_verify. ` +
     `Call MCP tools directly with structured arguments; do not type MCP tool names into shell/bash and do not print JSON examples instead of making real tool calls. ` +
+    `Never print a fenced code block or prose "function call" JSON as a substitute for an MCP tool invocation — if you need a tool, invoke it; if you are done sealing, stop. ` +
     `Never claim that a tool call, audit append, manifest finalize, or manifest verify happened unless the corresponding MCP tool actually returned; in particular, do not say manifest verification completed unless findevil-agent-mcp_manifest_verify returned overall:true. ` +
     `Do not invent underscore variants such as findevil_mcp_manifest_finalize. Do not use shell/bash/read/write/edit/list/grep/glob to inspect evidence or create ad hoc rules. Operate read-only on evidence. ` +
     `Negative-control discipline: suspicious filenames, planted strings, topic notes, archives named passwords, and sinkhole/parked-domain lookups are non-reportable decoy leads unless independent execution, persistence, credential access, C2, or data-movement evidence exists. ` +
     `Scope the verdict to SUSPICIOUS / INDETERMINATE / NO_EVIL. ` +
-    `The investigation is NOT complete unless manifest_verify reports overall:true and a real run.manifest.json plus audit.jsonl exist in the produced case directory — do not stop before the manifest is finalized and verified.`
+    `The investigation is NOT complete unless manifest_verify reports overall:true and a real run.manifest.json plus audit.jsonl exist in the produced case directory — do not stop before the manifest is finalized and verified. After those files exist and overall:true, end the turn.`
 
   console.error(`[caseforge] route=${routeId} model=${modelRef} privacy=${mode} evidence=${evidenceClass}`)
   console.error(`[caseforge] evidence=${evidence.requestedPath}`)

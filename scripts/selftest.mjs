@@ -153,6 +153,13 @@ exit 64
   ok("investigate contains opencode global state", /OPENCODE_TEST_HOME/.test(investigateSrc) && /XDG_CONFIG_HOME/.test(investigateSrc) && /OPENCODE_DISABLE_EXTERNAL_SKILLS/.test(investigateSrc))
   ok("investigate prompt routes case_open to Rust MCP", /findevil-mcp_case_open/.test(investigateSrc) && /never call or invent findevil-agent-mcp_case_open/.test(investigateSrc))
   ok("investigate prompt routes single EVTX to evtx_query", /single EVTX/.test(investigateSrc) && /findevil-mcp_evtx_query/.test(investigateSrc) && /Do not call disk_mount/.test(investigateSrc))
+  ok(
+    "investigate single EVTX mandates seal sequence without printed JSON substitutes",
+    /mandatory tool sequence/.test(investigateSrc) &&
+      /findevil-agent-mcp_manifest_finalize/.test(investigateSrc) &&
+      /Never print a fenced code block/.test(investigateSrc) &&
+      /do not print JSON examples instead of making real tool calls/.test(investigateSrc),
+  )
   ok("investigate prompt avoids helper tool confusion", /Every tool call name must start with findevil-mcp_/.test(investigateSrc) && /do not call a run tool, task tool, skill tool, todowrite tool/.test(investigateSrc))
   ok("investigate pins manifest tools to agent MCP", /Manifest tools are ONLY findevil-agent-mcp_manifest_finalize/.test(investigateSrc) && /never call findevil-mcp_manifest_finalize/.test(investigateSrc))
   ok("investigate requires verified manifest before complete", /manifest_verify reports overall:true/.test(investigateSrc) && /real run\.manifest\.json plus audit\.jsonl/.test(investigateSrc))
