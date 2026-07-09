@@ -15,6 +15,8 @@
 #     ~/.local/bin/verdict with a slash-containing version cannot hang npm
 #     (git ls-remote on 0.0.0-agent/…).
 #   VERDICT_LLM_MODEL — optional model override (e.g. llama3.1:8b when gpt-oss hangs).
+#   OPENCODE_TOOL_CHOICE / VERDICT_FORCE_TOOL_CHOICE — default required for agent tool calls
+#     (set OPENCODE_TOOL_CHOICE=auto or VERDICT_FORCE_TOOL_CHOICE=0 to disable).
 #
 # Never fabricates seal success. If Spark Ollama is unreachable, exits 0 with SKIP.
 set -euo pipefail
@@ -267,6 +269,8 @@ doctor_out="$(
   VERDICT_BIN="${VERDICT_BIN:-}" \
   OPENCODE_BIN="${OPENCODE_BIN:-}" \
   VERDICT_LLM_MODEL="${VERDICT_LLM_MODEL:-}" \
+  OPENCODE_TOOL_CHOICE="${OPENCODE_TOOL_CHOICE:-required}" \
+  VERDICT_FORCE_TOOL_CHOICE="${VERDICT_FORCE_TOOL_CHOICE:-1}" \
   node "${CLI}" doctor --route "${route_id}" 2>&1
 )"
 doctor_rc=$?
@@ -312,6 +316,8 @@ if command -v timeout >/dev/null 2>&1; then
   VERDICT_BIN="${VERDICT_BIN:-}" \
   OPENCODE_BIN="${OPENCODE_BIN:-}" \
   VERDICT_LLM_MODEL="${VERDICT_LLM_MODEL:-}" \
+  OPENCODE_TOOL_CHOICE="${OPENCODE_TOOL_CHOICE:-required}" \
+  VERDICT_FORCE_TOOL_CHOICE="${VERDICT_FORCE_TOOL_CHOICE:-1}" \
   timeout "${timeout_s}" \
     node "${CLI}" investigate "${EVIDENCE}" \
       --privacy local-only \
@@ -326,6 +332,8 @@ else
   VERDICT_BIN="${VERDICT_BIN:-}" \
   OPENCODE_BIN="${OPENCODE_BIN:-}" \
   VERDICT_LLM_MODEL="${VERDICT_LLM_MODEL:-}" \
+  OPENCODE_TOOL_CHOICE="${OPENCODE_TOOL_CHOICE:-required}" \
+  VERDICT_FORCE_TOOL_CHOICE="${VERDICT_FORCE_TOOL_CHOICE:-1}" \
     node "${CLI}" investigate "${EVIDENCE}" \
       --privacy local-only \
       --evidence sensitive \
