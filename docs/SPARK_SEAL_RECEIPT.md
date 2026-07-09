@@ -96,6 +96,74 @@ That FAIL is model/timeout hang behavior, not a smoke-script path/parse bug. No 
 
 No smoke-script bug fixed in this lane. Receipt only.
 
+## m17 hang residual (after /v1 + hang messaging) — diagnosis only
+
+**Not agent seal.** Live m17 seal smoke (2026-07-09, inotify max_user_watches=524288,
+`CASEFORGE_SPARK_SMOKE_TIMEOUT=600`) still stalls on the agent path after doctor
+greens `/v1`.
+
+### Primary (model / Spark Ollama)
+
+Evidence from concurrent seal investigate (`verdict run --pure`, route
+`spark-ollama` → `gpt-oss:20b` via `verdict-local/local`):
+
+- opencode log reaches `stream providerID=verdict-local modelID=local … agent=verdict`
+  then sits with ESTAB TCP to `10.126.60.100:11434` and no further session steps.
+- Direct probe (same host/model) returned **0 bytes for 30s**:
+
+```bash
+curl -sS --max-time 30 http://10.126.60.100:11434/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"gpt-oss:20b","messages":[{"role":"user","content":"Reply with exactly: pong"}],"max_tokens":8,"stream":false}'
+# curl: (28) Operation timed out after 30001 milliseconds with 0 bytes received
+```
+
+- `GET /api/tags` and doctor `selected local endpoint reachable (…/v1)` stay OK —
+  liveness ≠ chat completion under load.
+- m16 hang (rc=124, no case/run) already had this model-wait shape; m16 also had
+  `inotify_add_watch … ENOSPC` (raised this session). m17 no longer shows ENOSPC
+  on the live path; hang remains model non-response.
+
+**Conclusion:** residual hang is **not** a missing caseforge abort, bare-baseURL
+404, or investigate wrapper loop. It is Spark Ollama / `gpt-oss:20b` failing to
+return chat completions in time. Operator mitigations: smaller model
+(`VERDICT_LLM_MODEL=llama3.1:8b`), free Ollama capacity, or accept fallback PASS
+(not agent seal).
+
+### Secondary (harness noise — handoff to opencode / subtree-pull)
+
+Installed binary version string:
+
+```text
+0.0.0-agent/m4-verdict-opencode-runtime-202607080429
+```
+
+Background config install pins `@opencode-ai/plugin@${InstallationVersion}`.
+A version containing `/` is treated by npm as GitHub `owner/repo`, so a child
+process hangs on:
+
+```text
+git ls-remote ssh://git@github.com/0.0.0-agent/m4-verdict-opencode-runtime-202607080429.git
+# SSH SYN-SENT to github.com:22 (observed under live investigate)
+```
+
+Root: build embeds git branch as channel (`0.0.0-${CHANNEL}-…` in
+`engine/packages/script/src/index.ts`); branch `agent/m4-…` injects `/`.
+Install is `forkDetach` (does not block the LLM stream), but is still a real
+harness bug. **Fix belongs in verdict-opencode** (sanitize `/` in channel/version
+before npm pin, or skip non-semver pins) → rebuild `verdict` → optional
+caseforge `engine/` subtree-pull. Do **not** dual-edit the same paths in the
+opencode lane.
+
+m16 binary `0.0.0-main-202607050502` (no slash) still hung 300s on model —
+slash bug is additive noise, not the m16 root cause.
+
+### Engine / caseforge code action (m17)
+
+No caseforge investigate or smoke-script functional fix in this lane (model-side
+primary). Hang-timeout messaging already lands via PR #19. This section is the
+m17 diagnosis receipt only.
+
 ## Milestone 14 — REQUIRE_AGENT gate (script option)
 
 `CASEFORGE_SPARK_SMOKE_REQUIRE_AGENT=1` makes the smoke **FAIL** when the
