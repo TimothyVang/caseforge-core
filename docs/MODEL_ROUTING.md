@@ -12,6 +12,17 @@
 | `redacted-cloud` | API/cloud models, but **only after redaction** of sensitive content. | Real evidence, egress limited to redacted content. |
 | `cloud-ok` | Cloud / API models freely. | Synthetic fixtures, public datasets, lab cases, operator-approved non-sensitive evidence. |
 
+### xAI Grok cloud
+
+Named routes **`xai-grok`** / **`xai-grok-mini`** call **xAI’s API** (`XAI_API_KEY`), not
+local Ollama/Spark. See **[GROK_CLOUD.md](GROK_CLOUD.md)**. Example:
+
+```bash
+export XAI_API_KEY=...
+caseforge investigate fixtures/synthetic \
+  --privacy cloud-ok --evidence synthetic --route xai-grok
+```
+
 `local-only` is the default. Redaction under `redacted-cloud` covers usernames,
 hostnames, IPs (if required), domains (if required), emails, secrets, API keys,
 tokens, and sensitive document text.

@@ -101,6 +101,31 @@ routes:
     tool_calling: true
     privacy_locations: [cloud]
 
+  # xAI Grok cloud API (not local Ollama / not Spark).
+  # Requires XAI_API_KEY. Privacy: cloud — use only with synthetic / public /
+  # operator-approved evidence under cloud-ok (or redacted-cloud after redaction).
+  #   export XAI_API_KEY=...
+  #   caseforge investigate <path> --privacy cloud-ok --evidence synthetic --route xai-grok
+  # Override model: VERDICT_LLM_MODEL is NOT used for cloud routes; set model
+  # below or add a second route (e.g. xai-grok-mini) if you need another Grok id.
+  xai-grok:
+    provider: xai
+    base_url: https://api.x.ai/v1
+    model: grok-3                     # engine model ref → xai/grok-3
+    auth: api-key
+    api_key: "{env:XAI_API_KEY}"
+    tool_calling: true
+    privacy_locations: [cloud]
+
+  xai-grok-mini:
+    provider: xai
+    base_url: https://api.x.ai/v1
+    model: grok-3-mini
+    auth: api-key
+    api_key: "{env:XAI_API_KEY}"
+    tool_calling: true
+    privacy_locations: [cloud]
+
 # ------------------------------------------------------------------------------
 # Optional default selection policy (advisory; the CaseForge router enforces it).
 # ------------------------------------------------------------------------------
@@ -108,8 +133,11 @@ routing_policy:
   # For sensitive/seized evidence the router restricts selection to local-only.
   sensitive_default: spark-ollama
   # For explicitly non-sensitive work, prefer ChatGPT subscription OAuth.
+  # For Grok cloud instead: non_sensitive_default: xai-grok (requires XAI_API_KEY).
   non_sensitive_default: chatgpt-oauth
   notes: >-
     Selection is a suggestion only. The privacy router has final say and will
     reject any route whose privacy_locations include "cloud" when the active
-    material is not marked non-sensitive.
+    material is not marked non-sensitive. xai-grok is cloud egress — never the
+    default for seized/real evidence under local-only.
+
