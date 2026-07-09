@@ -11,7 +11,7 @@
   ],
   "scripts": {
     "build": "npm run build -w @verdict/caseforge-sdk && npm run build -w @verdict/caseforge-tui && npm run build -w @verdict/caseforge-cli",
-    "typecheck": "npm run build -w @verdict/caseforge-sdk && npm run typecheck -w @verdict/caseforge-tui && npm run typecheck -w @verdict/caseforge-cli",
+    "typecheck": "npm run build -w @verdict/caseforge-sdk && npm run build -w @verdict/caseforge-tui && npm run typecheck -w @verdict/caseforge-cli",
     "selftest": "node scripts/selftest.mjs",
     "smoke:local-route": "bash scripts/local-route-readiness-smoke.sh",
     "smoke:operator": "bash scripts/operator-chatgpt-smoke.sh",
