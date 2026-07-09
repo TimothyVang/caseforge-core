@@ -127,14 +127,34 @@ export function renderFindingDetail(v: CaseView, index: number): string {
   ].join("\n")
 }
 
-export function renderCoverage(v: CaseView): string {
-  const head = `${LILAC}${BOLD}COVERAGE${RESET}`
+export function renderCoverage(v: CaseView, selected?: number, focused = false): string {
+  const focus = focused ? `${LILAC}▸${RESET} ` : ""
+  const head = `${focus}${LILAC}${BOLD}COVERAGE${RESET}`
   if (v.coverage.length === 0) return `${head}\n  ${NOT_PRODUCED}`
-  const rows = v.coverage.map(
-    (c: CoverageRow) =>
-      `  ${c.artifact_class.padEnd(14)} avail ${mark(c.available)}  attempted ${mark(c.attempted)}  parsed ${mark(c.parsed)}`,
-  )
+  const rows = v.coverage.map((c: CoverageRow, i) => {
+    const arrow = i === selected && focused ? `${LILAC}▶${RESET}` : " "
+    return `${arrow} ${c.artifact_class.padEnd(14)} avail ${mark(c.available)}  attempted ${mark(c.attempted)}  parsed ${mark(c.parsed)}`
+  })
   return `${head}\n${rows.join("\n")}`
+}
+
+/** Full detail for one coverage row. Honest degradation when missing. */
+export function renderCoverageDetail(v: CaseView, index: number): string {
+  const head = `${LILAC}${BOLD}COVERAGE DETAIL${RESET}`
+  if (v.coverage.length === 0) return `${head}\n  ${NOT_PRODUCED}`
+  const c = v.coverage[index]
+  if (!c) return `${head}\n  ${NOT_PRODUCED}`
+  const cls = c.artifact_class || "?"
+  const yn = (b?: boolean): string =>
+    b === true ? `${SEAFOAM}yes${RESET}` : b === false ? `${CORAL}no${RESET}` : `${DIM}unknown${RESET}`
+  return [
+    head,
+    `  class      ${BOLD}${cls}${RESET}`,
+    `  available  ${yn(c.available)}`,
+    `  attempted  ${yn(c.attempted)}`,
+    `  parsed     ${yn(c.parsed)}`,
+    `  supported  ${yn(c.supported)}`,
+  ].join("\n")
 }
 
 export function renderAudit(v: CaseView): string {
@@ -195,10 +215,12 @@ export function renderPicker(entries: RunEntry[], cursor?: number): string {
   return `${head}  ${DIM}${entries.length}${RESET}\n${rows.join("\n")}`
 }
 
-export function renderFooter(view: "picker" | "case" | "detail" | "timeline-detail"): string {
+export function renderFooter(
+  view: "picker" | "case" | "detail" | "timeline-detail" | "coverage-detail",
+): string {
   if (view === "picker") return `${DIM}↑↓ move · enter open · q quit${RESET}`
   if (view === "case")
-    return `${DIM}tab panel · ↑↓ move · enter detail · q back${RESET}`
+    return `${DIM}tab panel (findings/timeline/coverage) · ↑↓ move · enter detail · q back${RESET}`
   return `${DIM}q back · ctrl-c quit${RESET}`
 }
 
@@ -214,14 +236,15 @@ export function renderScreen(
   v: CaseView,
   selectedFinding?: number,
   selectedTimeline?: number,
-  panel: "findings" | "timeline" = "findings",
+  panel: "findings" | "timeline" | "coverage" = "findings",
+  selectedCoverage?: number,
 ): string {
   return [
     renderHeader(v),
     renderCustodyBanner(v),
     renderFindings(v, selectedFinding, panel === "findings"),
     renderTimeline(v, selectedTimeline, panel === "timeline"),
-    renderCoverage(v),
+    renderCoverage(v, selectedCoverage, panel === "coverage"),
     renderAudit(v),
   ]
     .filter((s) => s.length > 0)

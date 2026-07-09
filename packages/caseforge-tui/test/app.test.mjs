@@ -83,29 +83,43 @@ test("ctrl-c quits from the detail view", () => {
   s = reduce(s, "quit", 3, 2)
   assert.equal(s.quit, true)
 })
-test("tab switches case panel between findings and timeline", () => {
+test("tab cycles case panel findings -> timeline -> coverage", () => {
   let s = reduce(initialState, "enter", 3) // case
   assert.equal(s.panel, "findings")
-  s = reduce(s, "tab", 3, 2, 4)
+  s = reduce(s, "tab", 3, 2, 4, 3)
   assert.equal(s.panel, "timeline")
-  s = reduce(s, "tab", 3, 2, 4)
+  s = reduce(s, "tab", 3, 2, 4, 3)
+  assert.equal(s.panel, "coverage")
+  s = reduce(s, "tab", 3, 2, 4, 3)
   assert.equal(s.panel, "findings")
 })
 test("timeline panel cursor moves and enter opens timeline-detail", () => {
   let s = reduce(initialState, "enter", 3) // case
-  s = reduce(s, "tab", 3, 2, 3) // timeline panel
+  s = reduce(s, "tab", 3, 2, 3, 2) // timeline panel
   assert.equal(s.panel, "timeline")
-  s = reduce(s, "down", 3, 2, 3)
+  s = reduce(s, "down", 3, 2, 3, 2)
   assert.equal(s.timeline, 1)
-  s = reduce(s, "enter", 3, 2, 3)
+  s = reduce(s, "enter", 3, 2, 3, 2)
   assert.equal(s.view, "timeline-detail")
-  s = reduce(s, "back", 3, 2, 3)
+  s = reduce(s, "back", 3, 2, 3, 2)
   assert.equal(s.view, "case")
   assert.equal(s.panel, "timeline")
 })
 test("enter on empty timeline panel is a no-op", () => {
   let s = reduce(initialState, "enter", 3)
-  s = reduce(s, "tab", 3, 2, 0)
-  s = reduce(s, "enter", 3, 2, 0)
+  s = reduce(s, "tab", 3, 2, 0, 0)
+  s = reduce(s, "enter", 3, 2, 0, 0)
+  assert.equal(s.view, "case")
+})
+test("coverage panel enter opens coverage-detail", () => {
+  let s = reduce(initialState, "enter", 3)
+  s = reduce(s, "tab", 3, 2, 2, 3)
+  s = reduce(s, "tab", 3, 2, 2, 3) // coverage
+  assert.equal(s.panel, "coverage")
+  s = reduce(s, "down", 3, 2, 2, 3)
+  assert.equal(s.coverage, 1)
+  s = reduce(s, "enter", 3, 2, 2, 3)
+  assert.equal(s.view, "coverage-detail")
+  s = reduce(s, "back", 3, 2, 2, 3)
   assert.equal(s.view, "case")
 })

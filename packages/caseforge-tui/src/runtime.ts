@@ -5,6 +5,7 @@ import {
   renderFooter,
   renderFindingDetail,
   renderTimelineDetail,
+  renderCoverageDetail,
 } from "./render.js"
 import { listRuns } from "./picker.js"
 import type { RunEntry } from "./picker.js"
@@ -16,28 +17,37 @@ const CLEAR = "\x1b[2J\x1b[H"
 interface DrawCounts {
   findingCount: number
   timelineCount: number
+  coverageCount: number
 }
 
-/** Draw the current state. Returns finding/timeline counts for the loaded case
- * so reduce() can clamp cursors. */
+/** Draw the current state. Returns list counts for reduce() cursor clamps. */
 async function draw(state: AppState, runs: RunEntry[]): Promise<DrawCounts> {
   if (state.view === "picker") {
     const body = `${renderPicker(runs, state.cursor)}\n\n${renderFooter("picker")}`
     process.stdout.write(CLEAR + body + "\n")
-    return { findingCount: 0, timelineCount: 0 }
+    return { findingCount: 0, timelineCount: 0, coverageCount: 0 }
   }
   const entry = runs[state.cursor]
   const view = entry ? await loadCase(entry.dir) : undefined
   const findingCount = view?.verdict?.findings?.length ?? 0
   const timelineCount = view?.timeline?.length ?? 0
+  const coverageCount = view?.coverage?.length ?? 0
   let panel: string
   if (!view) panel = "no case selected"
   else if (state.view === "detail") panel = renderFindingDetail(view, state.finding)
   else if (state.view === "timeline-detail") panel = renderTimelineDetail(view, state.timeline)
-  else panel = renderScreen(view, state.finding, state.timeline, state.panel)
+  else if (state.view === "coverage-detail") panel = renderCoverageDetail(view, state.coverage)
+  else
+    panel = renderScreen(
+      view,
+      state.finding,
+      state.timeline,
+      state.panel,
+      state.coverage,
+    )
   const body = `${panel}\n\n${renderFooter(state.view)}`
   process.stdout.write(CLEAR + body + "\n")
-  return { findingCount, timelineCount }
+  return { findingCount, timelineCount, coverageCount }
 }
 
 /** Interactive picker->viewer loop. Thin I/O shell over the pure app.ts core;
@@ -71,6 +81,7 @@ export async function runInteractive(roots: string[]): Promise<number> {
         runs.length,
         counts.findingCount,
         counts.timelineCount,
+        counts.coverageCount,
       )
       if (state.quit) {
         cleanup()
