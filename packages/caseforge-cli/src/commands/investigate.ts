@@ -414,6 +414,13 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
     )
     env.VERDICT_LLM_APIKEY = process.env.VERDICT_LLM_APIKEY ?? "local"
     env.VERDICT_LLM_MODEL = process.env.VERDICT_LLM_MODEL ?? route.model
+    // Force structured tool calls on non-final steps for weak local models
+    // (llama3.1 often prints JSON prose instead of MCP tool invocations).
+    // Opt out with OPENCODE_TOOL_CHOICE=auto or VERDICT_FORCE_TOOL_CHOICE=0.
+    if (process.env.VERDICT_FORCE_TOOL_CHOICE !== "0") {
+      env.OPENCODE_TOOL_CHOICE = process.env.OPENCODE_TOOL_CHOICE ?? "required"
+      env.VERDICT_FORCE_TOOL_CHOICE = process.env.VERDICT_FORCE_TOOL_CHOICE ?? "1"
+    }
   } else {
     // cloud provider handled by opencode's built-in catalog + auth
     modelRef = `${route.provider}/${route.model}`

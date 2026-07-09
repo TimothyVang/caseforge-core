@@ -172,6 +172,12 @@ exit 64
   ok("investigate EVTX hint surveys before filtering (no hardcoded eids)", /Do NOT pass an eids filter on the first query/.test(investigateSrc) && !/eids \[1102\], and limit 100/.test(investigateSrc))
   ok("investigate forbids stub signer and prefers ed25519 at seal", /Do NOT pass signer:'stub'/.test(investigateSrc) && /signer:'ed25519'/.test(investigateSrc))
   ok("investigate names manifest_path arg at verify", /argument named manifest_path/.test(investigateSrc))
+  ok(
+    "investigate local route forces OPENCODE_TOOL_CHOICE required by default",
+    /OPENCODE_TOOL_CHOICE/.test(investigateSrc) &&
+      /required/.test(investigateSrc) &&
+      /VERDICT_FORCE_TOOL_CHOICE/.test(investigateSrc),
+  )
   const evidenceDir = mkdtempSync(join(tmpdir(), "caseforge-evidence-"))
   try {
     writeFileSync(join(evidenceDir, "manifest.json"), "{}")
