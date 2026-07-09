@@ -182,3 +182,80 @@ test("finding detail degrades honestly for an uncited finding (no fabricated cus
   assert.doesNotMatch(d, /tc-/) // no fabricated tool_call_id
   assert.doesNotMatch(d, /sha256 [0-9a-f]/) // no fabricated output hash
 })
+
+import { renderTimelineDetail } from "../dist/src/render.js"
+
+test("timeline detail renders full event fields", () => {
+  const v = {
+    runDir: "(synthetic)",
+    validation: { status: "complete", custodyValid: true, detail: "" },
+    recordedManifestOverall: true,
+    verdict: { verdict: "SUSPICIOUS", findings: [] },
+    custody: undefined,
+    coverage: [],
+    audit: [],
+    timeline: [
+      {
+        ts: "2026-01-01T00:00:00Z",
+        confidence: "CONFIRMED",
+        technique: "T1543.003",
+        significance: "high",
+        summary: "Service install observed",
+      },
+    ],
+    chainOk: true,
+  }
+  const d = renderTimelineDetail(v, 0)
+  assert.match(d, /TIMELINE DETAIL/)
+  assert.match(d, /T1543\.003/)
+  assert.match(d, /Service install observed/)
+  assert.match(d, /2026-01-01/)
+  assert.match(d, /high/)
+})
+test("timeline detail degrades honestly for empty timeline", () => {
+  const v = {
+    runDir: "(synthetic)",
+    validation: { status: "complete", custodyValid: true, detail: "" },
+    recordedManifestOverall: true,
+    verdict: { verdict: "NO_EVIL", findings: [] },
+    custody: undefined,
+    coverage: [],
+    audit: [],
+    timeline: [],
+    chainOk: true,
+  }
+  assert.match(renderTimelineDetail(v, 0), /not produced by this run/)
+})
+test("timeline detail degrades honestly for out-of-range index", () => {
+  const v = {
+    runDir: "(synthetic)",
+    validation: { status: "complete", custodyValid: true, detail: "" },
+    recordedManifestOverall: true,
+    verdict: { verdict: "SUSPICIOUS", findings: [] },
+    custody: undefined,
+    coverage: [],
+    audit: [],
+    timeline: [{ ts: "t", summary: "one" }],
+    chainOk: true,
+  }
+  assert.match(renderTimelineDetail(v, 9), /not produced by this run/)
+})
+test("timeline list highlights selection when focused", () => {
+  const v = {
+    runDir: "(synthetic)",
+    validation: { status: "complete", custodyValid: true, detail: "" },
+    recordedManifestOverall: true,
+    verdict: { verdict: "SUSPICIOUS", findings: [] },
+    custody: undefined,
+    coverage: [],
+    audit: [],
+    timeline: [
+      { ts: "t0", technique: "T1", summary: "first" },
+      { ts: "t1", technique: "T2", summary: "second" },
+    ],
+    chainOk: true,
+  }
+  const t = renderTimeline(v, 1, true)
+  assert.match(t, /TIMELINE/)
+  assert.match(t, /second/)
+})
