@@ -614,6 +614,7 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
     `Never print a fenced code block or prose "function call" JSON as a substitute for an MCP tool invocation — if you need a tool, invoke it; if you are done sealing, stop. ` +
     `Never claim that a tool call, audit append, manifest finalize, or manifest verify happened unless the corresponding MCP tool actually returned; in particular, do not say manifest verification completed unless findevil-agent-mcp_manifest_verify returned overall:true. ` +
     `Do not invent underscore variants such as findevil_mcp_manifest_finalize. Do not use shell/bash/read/write/edit/list/grep/glob to inspect evidence or create ad hoc rules. Operate read-only on evidence. ` +
+    `Seal paths: after case_open, write audit.jsonl and run.manifest.json ONLY under that case's directory (FINDEVIL_HOME/cases/<case_id>/). Never use ~/.local/state/findevil/cases/ or any other home-state path for audit or manifest files — those paths are wrong for this run and will leave the case unsealed. Use absolute paths under the real case directory for audit_append path, audit_verify path, manifest_finalize output_path, and manifest_verify manifest_path. ` +
     `Negative-control discipline: suspicious filenames, planted strings, topic notes, archives named passwords, and sinkhole/parked-domain lookups are non-reportable decoy leads unless independent execution, persistence, credential access, C2, or data-movement evidence exists. ` +
     `Scope the verdict to SUSPICIOUS / INDETERMINATE / NO_EVIL. ` +
     `The investigation is NOT complete unless manifest_verify reports overall:true and a real run.manifest.json plus audit.jsonl exist in the produced case directory — do not stop before the manifest is finalized and verified. After those files exist and overall:true, end the turn.`
@@ -672,14 +673,22 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
           }
         })()
       : undefined
+    const auditPath = runDir ? join(runDir, "audit.jsonl") : undefined
+    const manifestPath = runDir ? join(runDir, "run.manifest.json") : undefined
     const continuePrompt =
       `CONTINUE the authorized DFIR lab investigation of ${evidence.caseOpenPath}. ` +
-      (caseId
-        ? `case_id is already ${caseId}; case_dir is under the findevil cases directory for that id. Do NOT call case_open again. `
-        : `If you already have a case_id from a prior case_open, reuse it; only call case_open if you truly have none. `) +
+      (caseId && runDir
+        ? `case_id is already ${caseId}; case_dir is exactly '${runDir}'. Do NOT call case_open again. ` +
+          `Write seal artifacts ONLY under that case_dir — never ~/.local/state/findevil/cases/ or relative ./run.manifest.json. ` +
+          `Use path exactly '${auditPath}' for findevil-agent-mcp_audit_append and findevil-agent-mcp_audit_verify. ` +
+          `Use output_path exactly '${manifestPath}' for findevil-agent-mcp_manifest_finalize and manifest_path exactly '${manifestPath}' for findevil-agent-mcp_manifest_verify. `
+        : caseId
+          ? `case_id is already ${caseId}; case_dir is under the findevil cases directory for that id. Do NOT call case_open again. Never write under ~/.local/state/findevil/cases/. `
+          : `If you already have a case_id from a prior case_open, reuse it; only call case_open if you truly have none. Never write under ~/.local/state/findevil/cases/. `) +
       `Immediately complete only: (B) findevil-mcp_evtx_query with the exact evtx_path (survey limit 500, no eids filter first) if not already done; ` +
       `(C) findevil-agent-mcp_audit_append with payload.output_summary as a JSON OBJECT including rows:[{event_id,record_id,channel,ts}] copied from the tool result (every Event ID 1102 row required when present — never a prose-only summary string); ` +
       `(D) findevil-agent-mcp_audit_verify; (E) findevil-agent-mcp_manifest_finalize (signer omit or ed25519); (F) findevil-agent-mcp_manifest_verify. ` +
+      `Tool names must be exactly findevil-agent-mcp_* (hyphen before mcp), never findevil-agent_mcp_*. ` +
       `If Event ID 1102 is in the tool result, do not claim NO_EVIL. Stop only when manifest_verify returns overall:true. Real MCP tool calls only — no printed JSON.`
     console.error("[caseforge] agent case incomplete (missing seal artifacts); one seal-continue attempt…")
     const contCode = await runAgent(continuePrompt)
