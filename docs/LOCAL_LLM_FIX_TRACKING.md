@@ -52,3 +52,11 @@ A local-LLM run is "fixed" when, on the Spark with a local model:
 3. The verdict is **INDETERMINATE** (single-source EVTX), not `NO_EVIL`, and the
    SpoolFool + WMI findings are present.
 4. `node scripts/selftest.mjs` (caseforge) and dev's test suite stay green.
+
+## Session receipt 2026-07-09 (tmux team)
+
+See `verdict/tmp/llm-seal-receipts/SESSION_RECEIPT.md` (umbrella workspace).
+
+- PRs **merged**: dev #173, caseforge #9; beta **v0.5.0-beta.8** published.
+- Multi-file deterministic fallback: **verified** (both EVTX, ed25519, overall:true).
+- Live Spark agent seal: see receipt — do **not** claim PASS unless `agent_sealed_ed25519=true`.
