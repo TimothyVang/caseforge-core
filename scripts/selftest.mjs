@@ -122,6 +122,12 @@ exit 64
       /PASS: investigate completed via fallback \(not agent seal\)/.test(sparkSealSmoke) &&
       /exit 0/.test(sparkSealSmoke),
   )
+  ok(
+    "spark-local-seal-smoke timeout names agent hang after /v1 (not bare-baseURL 404)",
+    /agent path likely hung after LLM \/v1/.test(sparkSealSmoke) &&
+      /case incomplete \(no run\.manifest\.json\)/.test(sparkSealSmoke) &&
+      /not bare-baseURL 404/.test(sparkSealSmoke),
+  )
   const setup = readFileSync(fileURLToPath(new URL("../scripts/setup.sh", import.meta.url)), "utf8")
   ok(
     "setup installs verdict runtime without following existing symlinks",

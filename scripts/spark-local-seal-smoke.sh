@@ -236,11 +236,17 @@ if [ -z "${run_dir}" ] || [ ! -d "${run_dir}" ]; then
 fi
 
 # Timeout exit codes: GNU timeout → 124; some wrappers → 137
+# After the m15 /v1 bare-root fix, agent can still hang on long Spark tool runs
+# (case dir may exist with only case.json). Fail with hang messaging here instead
+# of falling through to a misleading "missing run.manifest.json" FAIL.
 if [ "${inv_rc}" -eq 124 ] || [ "${inv_rc}" -eq 137 ]; then
-  if [ -n "${run_dir}" ] && [ -d "${run_dir}" ]; then
-    say "investigate timed out (rc=${inv_rc}) but a case dir exists: ${run_dir}"
+  hang_hint="agent path likely hung after LLM /v1 (not bare-baseURL 404); raise CASEFORGE_SPARK_SMOKE_TIMEOUT or inspect log"
+  if [ -n "${run_dir}" ] && [ -d "${run_dir}" ] && [ -f "${run_dir}/run.manifest.json" ]; then
+    say "investigate timed out (rc=${inv_rc}) but case has run.manifest.json: ${run_dir}"
+  elif [ -n "${run_dir}" ] && [ -d "${run_dir}" ]; then
+    fail "investigate timed out after ${timeout_s}s (rc=${inv_rc}); case incomplete (no run.manifest.json). ${hang_hint}. run_dir=${run_dir} log=${log}"
   else
-    fail "investigate timed out after ${timeout_s}s (rc=${inv_rc}); no case/run dir produced. log=${log}"
+    fail "investigate timed out after ${timeout_s}s (rc=${inv_rc}); no case/run dir produced. ${hang_hint}. log=${log}"
   fi
 fi
 
