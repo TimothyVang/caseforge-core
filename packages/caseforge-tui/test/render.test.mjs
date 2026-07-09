@@ -259,3 +259,38 @@ test("timeline list highlights selection when focused", () => {
   assert.match(t, /TIMELINE/)
   assert.match(t, /second/)
 })
+
+import { renderCoverageDetail } from "../dist/src/render.js"
+
+test("coverage detail renders class flags", () => {
+  const v = {
+    runDir: "(synthetic)",
+    validation: { status: "complete", custodyValid: true, detail: "" },
+    recordedManifestOverall: true,
+    verdict: { verdict: "SUSPICIOUS", findings: [] },
+    custody: undefined,
+    coverage: [{ artifact_class: "evtx", available: true, attempted: true, parsed: false, supported: true }],
+    audit: [],
+    timeline: [],
+    chainOk: true,
+  }
+  const d = renderCoverageDetail(v, 0)
+  assert.match(d, /COVERAGE DETAIL/)
+  assert.match(d, /evtx/)
+  assert.match(d, /available/)
+  assert.match(d, /parsed/)
+})
+test("coverage detail degrades when empty", () => {
+  const v = {
+    runDir: "(synthetic)",
+    validation: { status: "complete", custodyValid: true, detail: "" },
+    recordedManifestOverall: true,
+    verdict: { verdict: "NO_EVIL", findings: [] },
+    custody: undefined,
+    coverage: [],
+    audit: [],
+    timeline: [],
+    chainOk: true,
+  }
+  assert.match(renderCoverageDetail(v, 0), /not produced by this run/)
+})
