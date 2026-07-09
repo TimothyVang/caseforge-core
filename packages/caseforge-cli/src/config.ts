@@ -32,6 +32,33 @@ export function routeLocation(route: RouteConfig): ProviderLocation {
   return route.privacy_locations?.includes("cloud") ? "cloud" : "local"
 }
 
+/**
+ * Normalize a local OpenAI-compatible base URL for @ai-sdk/openai-compatible.
+ *
+ * That client POSTs `${baseURL}/chat/completions`. Ollama/vLLM expose the
+ * OpenAI surface under `/v1/chat/completions`. A bare host root
+ * (`http://host:11434`) therefore becomes `.../chat/completions` and Ollama
+ * answers `404 page not found` — the m13 agent-path failure before EVTX fallback.
+ *
+ * Only rewrites URLs whose path is empty or `/`. Existing paths (`/v1`,
+ * `/api/paas/v4`, etc.) are left alone aside from trailing-slash trim.
+ */
+export function normalizeOpenAiCompatBaseUrl(baseUrl: string): string {
+  const trimmed = baseUrl.trim().replace(/\/+$/, "")
+  if (!trimmed) return trimmed
+  try {
+    const u = new URL(trimmed)
+    if (u.pathname === "" || u.pathname === "/") {
+      u.pathname = "/v1"
+      return u.toString().replace(/\/$/, "")
+    }
+    return trimmed
+  } catch {
+    if (/^https?:\/\/[^/]+$/i.test(trimmed)) return `${trimmed}/v1`
+    return trimmed
+  }
+}
+
 export function routeRequiresChatGptOAuth(route: RouteConfig): boolean {
   return route.auth === "chatgpt-oauth"
 }

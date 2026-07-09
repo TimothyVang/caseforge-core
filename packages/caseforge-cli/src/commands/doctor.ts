@@ -4,7 +4,16 @@ import { join } from "node:path"
 import { execFileSync } from "node:child_process"
 import { DEFAULT_PRIVACY_MODE } from "@verdict/caseforge-sdk"
 import { caseForgeLauncherPath, chatGptOAuthStatus, resolveVerdictRuntime } from "../chatgpt-auth.js"
-import { configsDir, loadRoutes, loadRoutingPolicy, opencodeProfileDir, routeLocation, routeRequiresChatGptOAuth, type RouteConfig } from "../config.js"
+import {
+  configsDir,
+  loadRoutes,
+  loadRoutingPolicy,
+  normalizeOpenAiCompatBaseUrl,
+  opencodeProfileDir,
+  routeLocation,
+  routeRequiresChatGptOAuth,
+  type RouteConfig,
+} from "../config.js"
 
 export interface DoctorOpts {
   route?: string
@@ -37,7 +46,8 @@ async function reachable(baseUrl: string): Promise<boolean> {
 
 export function selectedLocalEndpoint(route: RouteConfig, env: NodeJS.ProcessEnv = process.env): string | undefined {
   if (routeLocation(route) !== "local") return undefined
-  return env.VERDICT_LLM_BASEURL ?? route.base_url ?? "http://localhost:11434/v1"
+  const raw = env.VERDICT_LLM_BASEURL ?? route.base_url ?? "http://localhost:11434/v1"
+  return normalizeOpenAiCompatBaseUrl(raw)
 }
 
 export async function doctor(opts: DoctorOpts = {}): Promise<number> {

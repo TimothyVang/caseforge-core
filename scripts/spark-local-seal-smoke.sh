@@ -85,6 +85,13 @@ if [ -z "${endpoint}" ] || [[ "${endpoint}" == *"SPARK-HOST"* ]] || [[ "${endpoi
   exit 0
 fi
 
+# Bare host roots (http://host:11434) make openai-compat call /chat/completions
+# and Ollama returns "404 page not found". OpenAI surface is under /v1.
+endpoint="${endpoint%/}"
+if [[ "${endpoint}" =~ ^https?://[^/]+$ ]]; then
+  endpoint="${endpoint}/v1"
+fi
+
 # Normalize to Ollama tags URL for the liveness probe.
 probe_url="${endpoint%/}"
 probe_url="${probe_url%/v1}"
