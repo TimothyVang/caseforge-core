@@ -166,6 +166,14 @@ exit 64
       /Never print a fenced code block/.test(investigateSrc) &&
       /do not print JSON examples instead of making real tool calls/.test(investigateSrc),
   )
+  ok(
+    "investigate single EVTX requires structured audit rows and seal-continue",
+    /output_summary MUST be a JSON OBJECT/.test(investigateSrc) &&
+      /seal-continue attempt/.test(investigateSrc) &&
+      /Event ID 1102/.test(investigateSrc) &&
+      /never NO_EVIL/.test(investigateSrc),
+  )
+  ok("verdict agent has elevated steps budget for seal recovery", /steps:\s*48/.test(readFileSync(fileURLToPath(new URL("../configs/opencode/agent/verdict.md", import.meta.url)), "utf8")))
   ok("investigate prompt avoids helper tool confusion", /Every tool call name must start with findevil-mcp_/.test(investigateSrc) && /do not call a run tool, task tool, skill tool, todowrite tool/.test(investigateSrc))
   ok("investigate pins manifest tools to agent MCP", /Manifest tools are ONLY findevil-agent-mcp_manifest_finalize/.test(investigateSrc) && /never call findevil-mcp_manifest_finalize/.test(investigateSrc))
   ok("investigate requires verified manifest before complete", /manifest_verify reports overall:true/.test(investigateSrc) && /real run\.manifest\.json plus audit\.jsonl/.test(investigateSrc))
