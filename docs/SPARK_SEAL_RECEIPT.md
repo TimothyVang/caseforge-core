@@ -181,3 +181,69 @@ bash scripts/spark-local-seal-smoke.sh
 # Strict (FAIL if fallback was used — use when debugging agent path only):
 CASEFORGE_SPARK_SMOKE_REQUIRE_AGENT=1 bash scripts/spark-local-seal-smoke.sh
 ```
+
+## Milestone 24 — FORCE_AGENT DE_1102 scorecard (REQUIRE_AGENT=1)
+
+**Date:** 2026-07-09T19:55–20:08Z (UTC)  
+**Branch:** `agent/m24-force-agent-scorecard`  
+**Binary feed (opencode wave1):** `VERDICT_BIN=/home/assessor/.local/bin/verdict`  
+**Runtime version (quoted):** `0.0.0-agent-m24-binary-rebuild-202607091953`  
+**Log:** `tmp/m24-logs/seal-smoke.log` (umbrella)
+
+### Recipe (m20/m23 + m24 binary)
+
+```bash
+export VERDICT_BIN=/home/assessor/.local/bin/verdict   # opencode m24 rebuild post-#15
+export VERDICT_DFIR_HOME=/home/assessor/Desktop/PUG-Projects/verdict/dev
+export VERDICT_LLM_BASEURL=http://10.126.60.100:11434
+export CASEFORGE_SPARK_ENDPOINT=http://10.126.60.100:11434/v1
+export VERDICT_LLM_MODEL=gpt-oss:20b
+export OPENCODE_TOOL_CHOICE=required
+export VERDICT_FORCE_TOOL_CHOICE=1
+export CASEFORGE_FORCE_AGENT=1
+export CASEFORGE_SPARK_SMOKE_REQUIRE_AGENT=1
+export CASEFORGE_SPARK_SMOKE_TIMEOUT=480
+export CASEFORGE_SPARK_SMOKE_TIMEOUT_FORCE=1
+bash scripts/spark-local-seal-smoke.sh
+```
+
+### Quoted outcomes (do not invent `used_fallback=0`)
+
+**Attempt 1** (missing `findevil-mcp` binary under `VERDICT_DFIR_HOME/target/release/`):
+agent path emitted prose JSON tool stubs; fallback also failed pre-flight; no case/run dir.
+
+**Attempt 2** (MCP restored) — exact lines:
+
+```
+evidence: signature_kind=ed25519 signer_effective=ed25519 overall=true signature_verified=true used_fallback=1 inv_rc=0
+FAIL: agent seal not achieved: used_fallback=1 (CASEFORGE_SPARK_SMOKE_REQUIRE_AGENT=1). signature_kind=ed25519 overall=true run_dir=/home/assessor/Desktop/PUG-Projects/verdict/dev/tmp/auto-runs/auto-742b9767-20c5-47b4-89dc-6cfa22045a38
+```
+
+Agent failure mode (quoted): model called garbled name `findevil-agent_mcp_audit_append` →
+`Model tried to call unavailable tool 'invalid'` (available-tools list from opencode #15
+was returned). Incomplete case → deterministic `find_evil_auto` fallback sealed ed25519.
+
+**Attempt 3** — exact lines:
+
+```
+evidence: signature_kind=ed25519 signer_effective=ed25519 overall=true signature_verified=true used_fallback=1 inv_rc=0
+FAIL: agent seal not achieved: used_fallback=1 (CASEFORGE_SPARK_SMOKE_REQUIRE_AGENT=1). signature_kind=ed25519 overall=true run_dir=/home/assessor/Desktop/PUG-Projects/verdict/dev/tmp/auto-runs/auto-4477ade6-3476-48ce-bdb9-33cad17f4a63
+```
+
+Agent ran `findevil-mcp_evtx_query` only; never sealed audit/manifest → incomplete → fallback.
+
+### What this proves
+
+- m24 PATH `verdict` post-#15 rebuild was used (`0.0.0-agent-m24-binary-rebuild-202607091953`).
+- Under `CASEFORGE_FORCE_AGENT=1` + `REQUIRE_AGENT=1`, **agent-path seal was not achieved**
+  on either usable attempt: both **`used_fallback=1`**.
+- Fallback product path still seals **ed25519** with `overall=true` (custody OK) — that is
+  **not** an agent seal.
+
+### What this does NOT prove
+
+- Stable `used_fallback=0` agent seal (m23 demonstrated once; m24 re-smokes failed).
+- That the agent path exceeds the Claude / product-path fair-fight arm — **no agent-path
+  technique pack numbers** were produced; do not claim exceed.
+- That opencode #15 is insufficient: available-tool errors fired; residual is model tool-name
+  garbling / incomplete seal sequence, not a missing binary alone (after attempt 1 fix).
