@@ -60,3 +60,15 @@ See `verdict/tmp/llm-seal-receipts/SESSION_RECEIPT.md` (umbrella workspace).
 - PRs **merged**: dev #173, caseforge #9; beta **v0.5.0-beta.8** published.
 - Multi-file deterministic fallback: **verified** (both EVTX, ed25519, overall:true).
 - Live Spark agent seal: see receipt — do **not** claim PASS unless `agent_sealed_ed25519=true`.
+
+## Parity goal status 2026-07-09 (Claude Code × dev-verdict)
+
+Intent: verdict-opencode + **local LLM on Spark** should meet/exceed Claude Code runs on dev-verdict.
+
+| Bar | Status |
+|-----|--------|
+| Deterministic EVTX complete run (custody + multi-file findings) on Spark | **MEET** — develop DFIR home, `auto-70005142-…`, overall=true, ed25519, both EVTX |
+| Agentic path (opencode drives MCP + seals like Claude Code) | **NOT MEET** — investigate timeout EXIT=124, session tokens 0/0, no agent tool calls |
+| Exceed (local-only + on-box + multi-EVTX) | **YES** on the deterministic path |
+
+Receipt: umbrella `tmp/spark-onbox-receipts/PARITY_SCORECARD.md`.
