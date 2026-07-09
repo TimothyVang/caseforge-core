@@ -135,6 +135,12 @@ exit 64
       /engine\/packages\/opencode\/dist/.test(sparkSealSmoke) &&
       /git ls-remote/.test(sparkSealSmoke),
   )
+  ok(
+    "spark-local-seal-smoke REQUIRE_AGENT probes Ollama tools capability",
+    /REQUIRE_AGENT=1 but Ollama model/.test(sparkSealSmoke) &&
+      /tools capability/.test(sparkSealSmoke) &&
+      /api\/show/.test(sparkSealSmoke),
+  )
   const setup = readFileSync(fileURLToPath(new URL("../scripts/setup.sh", import.meta.url)), "utf8")
   ok(
     "setup installs verdict runtime without following existing symlinks",

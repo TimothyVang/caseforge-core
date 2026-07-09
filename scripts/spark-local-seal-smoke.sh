@@ -178,6 +178,43 @@ if [ "${probe_rc}" -ne 0 ] || ! grep -Eq '"models"|models' <<<"${probe_out}"; th
 fi
 say "Spark Ollama up (${probe_url})"
 
+# When agent seal is required, refuse models Ollama reports as non-tool-capable.
+# (e.g. qwen3.6:35b-a3b → "does not support tools"; agent path cannot seal.)
+if [ "${CASEFORGE_SPARK_SMOKE_REQUIRE_AGENT:-0}" = "1" ]; then
+  model_name="${VERDICT_LLM_MODEL:-}"
+  if [ -z "${model_name}" ] && [ -f "${routes_file}" ]; then
+    model_name="$(
+      awk -v id="${route_id}:" '
+        $0 ~ "^[[:space:]]*" id { in_route=1; next }
+        in_route && /^[[:space:]]+[a-zA-Z0-9_-]+:/ && $0 !~ /^[[:space:]]+model:/ { if ($0 ~ /^[[:space:]]{2}[a-zA-Z]/ && $0 !~ /^[[:space:]]{4}/) exit }
+        in_route && /model:/ {
+          sub(/^[^:]+:[[:space:]]*/, "")
+          sub(/[[:space:]]+#.*$/, "")
+          gsub(/[[:space:]]/, "")
+          print
+          exit
+        }
+      ' "${routes_file}"
+    )"
+  fi
+  if [ -n "${model_name}" ]; then
+    show_url="${probe_url%/api/tags}/api/show"
+    set +e
+    show_out="$(curl -sS -m 5 -H "Content-Type: application/json" -d "{\"name\":\"${model_name}\"}" "${show_url}" 2>&1)"
+    show_rc=$?
+    set -e
+    if [ "${show_rc}" -eq 0 ] && printf '%s' "${show_out}" | grep -q '"capabilities"'; then
+      if ! printf '%s' "${show_out}" | grep -Fq '"tools"'; then
+        fail "REQUIRE_AGENT=1 but Ollama model ${model_name} has no tools capability (cannot agent-seal). show=${show_url}"
+      fi
+      say "model ${model_name} tools capability: ok"
+    else
+      say "WARN: could not probe Ollama tools capability for ${model_name} (continuing)"
+    fi
+  fi
+fi
+
+
 CLI="${ROOT}/packages/caseforge-cli/dist/src/cli.js"
 if [ ! -f "${CLI}" ]; then
   say "building CLI (dist missing)"
