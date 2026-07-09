@@ -2,10 +2,14 @@
 # Spark local-seal smoke — time-bounded investigate via spark-ollama + DE_1102.
 #
 # Honest outcomes (exactly one final line of this form):
-#   PASS: sealed with ed25519
+#   PASS: sealed with ed25519 (agent path; used_fallback=0)
 #   PASS: investigate completed via fallback (not agent seal)
 #   SKIP: spark down
 #   FAIL: <reason with evidence>
+#
+# Env:
+#   CASEFORGE_SPARK_SMOKE_REQUIRE_AGENT=1 — FAIL if deterministic EVTX fallback ran
+#     (used_fallback=1). Default 0 keeps m13 PASS-with-fallback behavior.
 #
 # Never fabricates seal success. If Spark Ollama is unreachable, exits 0 with SKIP.
 set -euo pipefail
@@ -203,6 +207,11 @@ if grep -Eq 'deterministic local EVTX auto-runner fallback|verifying determinist
   used_fallback=1
 fi
 
+# Optional strict agent-seal gate (Milestone 14):
+# CASEFORGE_SPARK_SMOKE_REQUIRE_AGENT=1 fails if the deterministic EVTX fallback ran.
+# Default remains the honest PASS-with-fallback path (m13).
+require_agent="${CASEFORGE_SPARK_SMOKE_REQUIRE_AGENT:-0}"
+
 # Prefer case dir mentioned in the log; else newest case under CASES_DIR after marker.
 run_dir=""
 if grep -Eo 'verifying (produced|deterministic EVTX fallback) run: [^[:space:]]+' "${log}" >/dev/null 2>&1; then
@@ -290,9 +299,12 @@ fi
 
 if [ "${used_fallback}" -eq 1 ]; then
   # Fallback path can still produce an ed25519-sealed case; do not claim agent seal.
+  if [ "${require_agent}" = "1" ]; then
+    fail "agent seal not achieved: used_fallback=1 (CASEFORGE_SPARK_SMOKE_REQUIRE_AGENT=1). signature_kind=${sig_kind:-n/a} overall=${overall:-n/a} run_dir=${run_dir}"
+  fi
   if [ "${is_ed25519}" -eq 1 ] && { [ "${overall_true}" -eq 1 ] || [ "${inv_rc}" -eq 0 ]; }; then
     echo "PASS: investigate completed via fallback (not agent seal)"
-    echo "  quoted: signature_kind=${sig_kind:-n/a} overall=${overall:-n/a} run_dir=${run_dir}"
+    echo "  quoted: signature_kind=${sig_kind:-n/a} overall=${overall:-n/a} used_fallback=1 run_dir=${run_dir}"
     exit 0
   fi
   echo "PASS: investigate completed via fallback (not agent seal)"
@@ -301,8 +313,8 @@ if [ "${used_fallback}" -eq 1 ]; then
 fi
 
 if [ "${is_ed25519}" -eq 1 ] && [ "${overall_true}" -eq 1 ]; then
-  echo "PASS: sealed with ed25519"
-  echo "  quoted: signature_kind=${sig_kind} signer_effective=${signer_effective:-${sig_kind}} overall=true signature_verified=${signature_verified:-n/a} run_dir=${run_dir}"
+  echo "PASS: sealed with ed25519 (agent path; used_fallback=0)"
+  echo "  quoted: signature_kind=${sig_kind} signer_effective=${signer_effective:-${sig_kind}} overall=true signature_verified=${signature_verified:-n/a} used_fallback=0 run_dir=${run_dir}"
   exit 0
 fi
 
