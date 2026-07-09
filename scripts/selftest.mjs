@@ -191,7 +191,12 @@ exit 64
     writeFileSync(join(evidenceDir, "manifest.json"), "{}")
     writeFileSync(join(evidenceDir, "image.E01"), "tiny")
     const resolved = resolveEvidenceInput(evidenceDir)
-    ok("directory evidence stays directory-scoped for case_open", resolved.caseOpenPath === evidenceDir && resolved.inventory.includes("image.E01"))
+    ok(
+      "directory evidence case_open targets primary regular file (not the directory)",
+      resolved.isDirectory === true &&
+        resolved.caseOpenPath === join(evidenceDir, "image.E01") &&
+        resolved.inventory.includes("image.E01"),
+    )
   } finally {
     rmSync(evidenceDir, { recursive: true, force: true })
   }
@@ -215,9 +220,9 @@ exit 64
     writeFileSync(join(multiEvtxDir, "README.md"), "notes")
     const resolved = resolveEvidenceInput(multiEvtxDir)
     ok(
-      "multi-EVTX directory stays directory-scoped for case_open",
+      "multi-EVTX directory case_open targets a regular EVTX file (MCP requires a file)",
       resolved.isDirectory === true &&
-        resolved.caseOpenPath === multiEvtxDir &&
+        resolved.caseOpenPath === join(multiEvtxDir, "LM_Remote_Service02_7045.evtx") &&
         resolved.inventory.includes("LM_WMI_4624_4688_TargetHost.evtx"),
     )
     ok(
