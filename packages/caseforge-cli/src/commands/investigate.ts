@@ -9,7 +9,8 @@
 import { spawn, spawnSync, execFileSync } from "node:child_process"
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
 import { assertModelAllowed, DEFAULT_PRIVACY_MODE, PrivacyViolationError, assembleVerdictFromAudit } from "@verdict/caseforge-sdk"
 import type { EvidenceClass, PrivacyMode } from "@verdict/caseforge-sdk"
 import { chatGptOAuthStatus, printChatGptOAuthSetup, verdictLauncherPath } from "../chatgpt-auth.js"
@@ -92,13 +93,13 @@ function evidenceToolHint(evidence: ResolvedEvidenceInput, findevilHome?: string
     return (
       `Evidence type hint: single EVTX. Run this mandatory tool sequence without stopping for user input and without printing JSON examples: ` +
       `(A) findevil-mcp_case_open with image_path exactly '${evidence.caseOpenPath}'; ` +
-      `(B) findevil-mcp_evtx_query with case_id from case_open and evtx_path exactly '${evidence.caseOpenPath}' — Do NOT pass an eids filter on the first query (limit 500 survey); optional second focused query only if the survey shows DFIR-relevant Event IDs (e.g. 4624/4688/7045/1102); never assume an Event ID is present; ` +
-      `(C) findevil-agent-mcp_audit_append kind 'tool_call_output' for the EVTX query (payload tool_name 'evtx_query', arguments, output or output_summary; do not invent output_hash/output_sha256); ` +
-      `(D) findevil-agent-mcp_audit_verify; ` +
-      `(E) findevil-agent-mcp_manifest_finalize (omit signer or signer:'ed25519' — never signer:'stub') writing run.manifest.json into the case directory; ` +
+      `(B) findevil-mcp_evtx_query with case_id from case_open and evtx_path exactly '${evidence.caseOpenPath}' — Do NOT pass an eids filter on the first query (limit 500 survey). From the tool RESULT, list which Event IDs are present (read event_id fields; do not invent). If Event ID 1102 (audit-log cleared) is present, that is anti-forensics evidence: verdict must be SUSPICIOUS or INDETERMINATE, never NO_EVIL. Optional second query may filter eids only after the survey shows them; ` +
+      `(C) findevil-agent-mcp_audit_append kind 'tool_call_output' for the EVTX query. payload.tool_name='evtx_query'; payload.arguments=the query args; payload.output_summary MUST be a JSON OBJECT (not a prose string) with records_seen, row_count, and rows: array of {event_id, record_id, channel, ts} copied from the tool result (include every 1102 row at minimum). Do not invent output_hash/output_sha256; ` +
+      `(D) findevil-agent-mcp_audit_verify with path=audit_log_path; ` +
+      `(E) findevil-agent-mcp_manifest_finalize (omit signer or signer:'ed25519' — never signer:'stub') with case_id, audit_log_path, output_path=manifest_path; ` +
       `(F) findevil-agent-mcp_manifest_verify with manifest_path set to that run.manifest.json. ` +
       custodyHint +
-      `After (F) returns overall:true, stop. Do not wait for more instructions. Do not print tool calls as markdown/JSON code blocks — only real structured MCP tool calls. ` +
+      `CRITICAL: after (B) you MUST continue through (C)(D)(E)(F) in the same session — never stop after only case_open/evtx_query. After (F) returns overall:true, stop. Do not print tool calls as markdown/JSON code blocks — only real structured MCP tool calls. ` +
       `For a single EVTX you may seal audited tool outputs without finding_approved when verify_finding was not run. Do not call disk_mount or disk_extract_artifacts for a single EVTX file.\n`
     )
   }
@@ -146,11 +147,134 @@ function finalizeManifestVerify(runDir: string, dfirHome = process.env.VERDICT_D
  * custody-sealed. caseforge-derived and clearly marked as such — the toolkit's
  * authoritative verdict.json comes only from its own auto-runner.
  */
-async function finalizeVerdictJson(runDir: string): Promise<void> {
+/**
+ * When the agent audited evtx_query with empty/fabricated rows, re-query 1102
+ * via findevil-mcp and merge into the caseforge-derived verdict (not into audit).
+ */
+function enrichVerdictWithEvtx1102Probe(
+  runDir: string,
+  doc: { verdict?: string; findings?: unknown[]; evidence_path?: string; case_id?: string; [k: string]: unknown },
+  dfirHome: string | undefined,
+): typeof doc {
+  if (!dfirHome) return doc
+  const findings = Array.isArray(doc.findings) ? doc.findings : []
+  if (findings.length > 0) return doc
+  // dist/src/commands -> repo root scripts/ (5 levels up from this file in dist)
+  const here = dirname(fileURLToPath(import.meta.url))
+  const candidates = [
+    join(here, "../../../../../scripts/evtx-1102-probe.py"),
+    join(process.cwd(), "scripts", "evtx-1102-probe.py"),
+  ]
+  const probePath = candidates.find((p) => existsSync(p))
+  if (!probePath) return doc
+
+  let evtxPath = typeof doc.evidence_path === "string" ? doc.evidence_path : ""
+  let caseId = typeof doc.case_id === "string" ? doc.case_id : ""
+  if (!evtxPath || !caseId) {
+    try {
+      const caseJson = JSON.parse(readFileSync(join(runDir, "case.json"), "utf8")) as {
+        id?: string
+        case_id?: string
+        evidence_path?: string
+        image_path?: string
+      }
+      caseId = caseId || caseJson.id || caseJson.case_id || ""
+      evtxPath = evtxPath || caseJson.evidence_path || caseJson.image_path || ""
+    } catch {
+      /* ignore */
+    }
+  }
+  // Fallback: audit arguments
+  if (!evtxPath || !caseId) {
+    try {
+      const audit = readFileSync(join(runDir, "audit.jsonl"), "utf8")
+      for (const line of audit.split("\n")) {
+        if (!line.trim()) continue
+        const row = JSON.parse(line) as { payload?: { arguments?: { case_id?: string; evtx_path?: string } } }
+        const a = row.payload?.arguments
+        if (a?.evtx_path) evtxPath = evtxPath || a.evtx_path
+        if (a?.case_id) caseId = caseId || a.case_id
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  if (!evtxPath || !evtxPath.toLowerCase().endsWith(".evtx")) return doc
+
+  const args = [probePath, "--evtx", evtxPath]
+  if (caseId) args.push("--case-id", caseId)
+  const result = spawnSync("python3", args, {
+    encoding: "utf8",
+    env: { ...process.env, VERDICT_DFIR_HOME: dfirHome },
+    timeout: 120_000,
+  })
+  if (result.status !== 0 || !result.stdout?.trim()) {
+    console.error(
+      `[caseforge] evtx-1102-probe skipped/failed: ${(result.stderr || result.stdout || "").slice(0, 200)}`,
+    )
+    return doc
+  }
+  let parsed: { ok?: boolean; rows?: Array<Record<string, unknown>> }
+  try {
+    parsed = JSON.parse(result.stdout.trim().split("\n").pop() || "{}") as typeof parsed
+  } catch {
+    return doc
+  }
+  if (!parsed.ok || !Array.isArray(parsed.rows) || parsed.rows.length === 0) return doc
+
+  // HYPOTHESIS: probe re-query is not an audit-chain leaf (no tool_call_id in the
+  // sealed hash chain). Still surfaces EID 1102 for the caseforge-derived report
+  // when the agent sealed with empty fabricated rows.
+  const enrichedFindings = parsed.rows.map((r, i) => {
+    const recordId = r.record_id
+    const ts = typeof r.ts === "string" ? r.ts : undefined
+    const channel = typeof r.channel === "string" ? r.channel : "Security"
+    const when = ts ? ` at ${ts}` : ""
+    const recordSuffix = typeof recordId === "string" || typeof recordId === "number" ? String(recordId) : String(i + 1)
+    return {
+      finding_id: `evtx-1102-probe-${recordSuffix}`,
+      verdict: "SUSPICIOUS",
+      confidence: "HYPOTHESIS",
+      description: `hypothesis: ${channel} audit log cleared (Event ID 1102)${when}; record_id=${recordSuffix} (caseforge re-query after agent audit omitted structured rows).`,
+      tool_name: "evtx_query",
+      case_id: caseId || undefined,
+      evidence_path: evtxPath,
+      event_id: 1102,
+      channel,
+      record_id: recordId,
+      ts,
+    }
+  })
+  console.error(
+    `[caseforge] enriched verdict with ${enrichedFindings.length} EVTX 1102 row(s) from findevil-mcp re-query (agent audit had empty rows)`,
+  )
+  return {
+    ...doc,
+    verdict: "SUSPICIOUS",
+    findings: enrichedFindings,
+    case_completeness: {
+      ...(typeof doc.case_completeness === "object" && doc.case_completeness ? doc.case_completeness : {}),
+      generated_by_caseforge: true,
+      note: "Derived from audit.jsonl by caseforge; 1102 rows enriched via findevil-mcp re-query when agent audit omitted structured rows.",
+    },
+  }
+}
+
+async function finalizeVerdictJson(runDir: string, dfirHome = process.env.VERDICT_DFIR_HOME): Promise<void> {
   const out = join(runDir, "verdict.json")
-  if (existsSync(out)) return
-  const doc = await assembleVerdictFromAudit(runDir)
+  // Overwrite missing or caseforge-derived verdicts from audit (structured 1102 rows).
+  // Preserve toolkit auto-runner / other authoritative verdict.json files.
+  if (existsSync(out)) {
+    try {
+      const prev = JSON.parse(readFileSync(out, "utf8")) as { generated_by?: string }
+      if (prev.generated_by !== "caseforge") return
+    } catch {
+      return
+    }
+  }
+  let doc = await assembleVerdictFromAudit(runDir)
   if (!doc) return
+  doc = enrichVerdictWithEvtx1102Probe(runDir, doc, dfirHome) as typeof doc
   writeFileSync(out, JSON.stringify(doc, null, 2) + "\n")
   console.error(
     `[caseforge] assembled verdict.json from the audit chain — verdict ${doc.verdict}, ${doc.findings.length} cited finding(s)`,
@@ -469,22 +593,57 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
 
   const bin = verdictLauncherPath(env)
   const launchedAtMs = Date.now() - 1000
-  const runCode = await new Promise<number>((resolvePromise) => {
-    const child = spawn(bin, ["run", "--pure", "--agent", "verdict", "--model", modelRef, prompt], {
-      env,
-      stdio: "inherit",
+
+  const runAgent = (message: string): Promise<number> =>
+    new Promise<number>((resolvePromise) => {
+      const child = spawn(bin, ["run", "--pure", "--agent", "verdict", "--model", modelRef, message], {
+        env,
+        stdio: "inherit",
+      })
+      child.on("error", (err) => {
+        console.error(`failed to launch ${bin}: ${err.message}`)
+        resolvePromise(1)
+      })
+      child.on("exit", (code) => resolvePromise(code ?? 0))
     })
-    child.on("error", (err) => {
-      console.error(`failed to launch ${bin}: ${err.message}`)
-      resolvePromise(1)
-    })
-    child.on("exit", (code) => resolvePromise(code ?? 0))
-  })
+
+  const caseIsSealed = (dir: string | undefined): boolean =>
+    !!dir && existsSync(join(dir, "run.manifest.json")) && existsSync(join(dir, "audit.jsonl"))
+
+  let runCode = await runAgent(prompt)
+  let runDir = opts.runDir ?? findNewestCaseDir(env.VERDICT_DFIR_HOME, env.FINDEVIL_HOME, launchedAtMs)
+
+  // One seal-continue attempt: local models often stop after case_open/evtx_query.
+  // Re-enter with a short prompt that forbids re-open and requires C→F only.
+  if (!opts.noVerify && !caseIsSealed(runDir) && resolveEvtxFallbackPath(evidence)) {
+    const caseId = runDir && existsSync(join(runDir, "case.json"))
+      ? (() => {
+          try {
+            const raw = JSON.parse(readFileSync(join(runDir!, "case.json"), "utf8")) as { id?: string; case_id?: string }
+            return raw.id ?? raw.case_id
+          } catch {
+            return undefined
+          }
+        })()
+      : undefined
+    const continuePrompt =
+      `CONTINUE the authorized DFIR lab investigation of ${evidence.caseOpenPath}. ` +
+      (caseId
+        ? `case_id is already ${caseId}; case_dir is under the findevil cases directory for that id. Do NOT call case_open again. `
+        : `If you already have a case_id from a prior case_open, reuse it; only call case_open if you truly have none. `) +
+      `Immediately complete only: (B) findevil-mcp_evtx_query with the exact evtx_path (survey limit 500, no eids filter first) if not already done; ` +
+      `(C) findevil-agent-mcp_audit_append with payload.output_summary as a JSON OBJECT including rows:[{event_id,record_id,channel,ts}] copied from the tool result (every Event ID 1102 row required when present — never a prose-only summary string); ` +
+      `(D) findevil-agent-mcp_audit_verify; (E) findevil-agent-mcp_manifest_finalize (signer omit or ed25519); (F) findevil-agent-mcp_manifest_verify. ` +
+      `If Event ID 1102 is in the tool result, do not claim NO_EVIL. Stop only when manifest_verify returns overall:true. Real MCP tool calls only — no printed JSON.`
+    console.error("[caseforge] agent case incomplete (missing seal artifacts); one seal-continue attempt…")
+    const contCode = await runAgent(continuePrompt)
+    runCode = contCode === 0 ? 0 : runCode
+    runDir = opts.runDir ?? findNewestCaseDir(env.VERDICT_DFIR_HOME, env.FINDEVIL_HOME, launchedAtMs) ?? runDir
+  }
 
   if (opts.noVerify) return runCode
 
   // Close the loop: locate the produced run/case dir and validate it.
-  const runDir = opts.runDir ?? findNewestCaseDir(env.VERDICT_DFIR_HOME, env.FINDEVIL_HOME, launchedAtMs)
   if (!runDir) {
     console.error("[caseforge] investigation finished; no fresh run/case dir was produced to verify.")
     console.error("[caseforge] the run is incomplete until a new case directory is sealed and verified.")
@@ -498,11 +657,11 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
   // Independently confirm custody (writes manifest_verify.json), assemble the
   // structured verdict.json report from the audit chain, then validate.
   finalizeManifestVerify(runDir, env.VERDICT_DFIR_HOME)
-  await finalizeVerdictJson(runDir)
+  await finalizeVerdictJson(runDir, env.VERDICT_DFIR_HOME)
   console.error(`\n[caseforge] verifying produced run: ${runDir}`)
   let verifyCode = await verify([runDir])
   let fallbackVerified = false
-  if (verifyCode !== 0) {
+  if (verifyCode !== 0 || !caseIsSealed(runDir)) {
     const fallbackRunDir = runLocalEvtxAutoFallback(evidence, env)
     if (fallbackRunDir) {
       console.error(`\n[caseforge] verifying deterministic EVTX fallback run: ${fallbackRunDir}`)
