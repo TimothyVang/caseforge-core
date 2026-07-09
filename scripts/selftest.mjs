@@ -173,6 +173,12 @@ exit 64
       /Event ID 1102/.test(investigateSrc) &&
       /never NO_EVIL/.test(investigateSrc),
   )
+  ok(
+    "investigate seal-continue pins absolute case_dir (not ~/.local/state)",
+    /case_dir is exactly/.test(investigateSrc) &&
+      /Never use ~\/\.local\/state\/findevil\/cases\//.test(investigateSrc) &&
+      /hyphen before mcp/.test(investigateSrc),
+  )
   ok("verdict agent has elevated steps budget for seal recovery", /steps:\s*48/.test(readFileSync(fileURLToPath(new URL("../configs/opencode/agent/verdict.md", import.meta.url)), "utf8")))
   ok("investigate prompt avoids helper tool confusion", /Every tool call name must start with findevil-mcp_/.test(investigateSrc) && /do not call a run tool, task tool, skill tool, todowrite tool/.test(investigateSrc))
   ok("investigate pins manifest tools to agent MCP", /Manifest tools are ONLY findevil-agent-mcp_manifest_finalize/.test(investigateSrc) && /never call findevil-mcp_manifest_finalize/.test(investigateSrc))
