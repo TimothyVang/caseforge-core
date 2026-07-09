@@ -72,3 +72,21 @@ That FAIL is model/timeout hang behavior, not a smoke-script path/parse bug. No 
 ## Script status
 
 No smoke-script bug fixed in this lane. Receipt only.
+
+## Milestone 14 — REQUIRE_AGENT gate (script option)
+
+`CASEFORGE_SPARK_SMOKE_REQUIRE_AGENT=1` makes the smoke **FAIL** when the
+deterministic EVTX fallback ran (`used_fallback=1`). Default remains `0`
+(m13 behavior: PASS with fallback, never claim agent seal).
+
+This option does **not** produce an agent seal by itself. A true
+`used_fallback=0` agent-path seal is still open until the investigate
+agent path succeeds without fallback.
+
+```bash
+# Default (honest fallback PASS when agent path fails open):
+bash scripts/spark-local-seal-smoke.sh
+
+# Strict (FAIL if fallback was used — use when debugging agent path only):
+CASEFORGE_SPARK_SMOKE_REQUIRE_AGENT=1 bash scripts/spark-local-seal-smoke.sh
+```
