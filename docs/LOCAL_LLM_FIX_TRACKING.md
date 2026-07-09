@@ -31,6 +31,19 @@ and which repo/PR each part belongs to.
   `git subtree push --prefix=caseforge/engine <verdict-opencode-remote> <branch>`.
   Left OPEN pending a decision on whether the engine should own arg-normalization.
 
+## Engine TUI branding (PR #7) — disposition 2026-07-09
+
+PR #7 landed small VERDICT/DFIR presentation deltas under `engine/packages/tui/`
+(tips, footer, presentation). Those live in the **caseforge monorepo subtree** only.
+
+**Decision for this milestone:** keep branding **caseforge-local** for now. Do not
+block merge hygiene on a subtree push. The next `git subtree pull --prefix=engine
+opencode main` may need a careful merge if upstream TUI files diverge.
+
+**Optional later:** `git subtree push --prefix=engine opencode agent/…` + open a
+verdict-opencode PR so branding is not lost on pull. Tracked as follow-up, not
+required for beta.6.
+
 ## Verification (Definition of Done for the fix)
 
 A local-LLM run is "fixed" when, on the Spark with a local model:
