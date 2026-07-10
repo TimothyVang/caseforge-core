@@ -458,5 +458,148 @@ console.log("investigate local-model wiring:")
   ok("sensitive default route is the local Spark Ollama route", /sensitive_default:\s*spark-ollama/.test(routes) && /model:\s*gpt-oss:20b/.test(routes))
 }
 
+// --- m27: the declared provider matrix must match the executable route surface --
+//
+// These assert the *whole* named-route surface, not a hand-built candidate. A
+// route that mislabels a cloud provider as privacy_locations:[local] would walk
+// straight through the privacy gate, so the location agreement check below is a
+// security invariant, not a style check.
+console.log("provider matrix vs route surface:")
+{
+  const { loadRoutes, routeLocation, resolveCandidate } = await import("../packages/caseforge-cli/dist/src/config.js")
+  const { parse: parseYaml } = await import("yaml")
+  const caps = parseYaml(readFileSync(fileURLToPath(new URL("../configs/provider-capabilities.yaml", import.meta.url)), "utf8"))
+  const providers = caps.providers ?? {}
+  const routes = loadRoutes()
+  const routeIds = Object.keys(routes)
+
+  ok("provider-capabilities declares providers", Object.keys(providers).length > 0)
+  ok(
+    "every route names a declared provider",
+    routeIds.every((id) => Boolean(providers[routes[id].provider])),
+  )
+  // Security invariant: a route may not claim "local" for a cloud provider.
+  ok(
+    "route privacy_locations agree with provider location",
+    routeIds.every((id) => routeLocation(routes[id]) === providers[routes[id].provider]?.location),
+  )
+
+  const cloudRoutes = routeIds.filter((id) => routeLocation(routes[id]) === "cloud")
+  const localRoutes = routeIds.filter((id) => routeLocation(routes[id]) === "local")
+  ok("there is at least one cloud and one local route", cloudRoutes.length > 0 && localRoutes.length > 0)
+
+  const decide = (id, ctx) => decideModel(resolveCandidate(id).candidate, ctx)
+  ok(
+    "local-only denies EVERY named cloud route",
+    cloudRoutes.every((id) => decide(id, { mode: "local-only" }).allowed === false),
+  )
+  ok(
+    "local-only allows EVERY named local route",
+    localRoutes.every((id) => decide(id, { mode: "local-only" }).allowed === true),
+  )
+  ok(
+    "cloud-ok + synthetic allows EVERY named cloud route",
+    cloudRoutes.every((id) => decide(id, { mode: "cloud-ok", evidenceClass: "synthetic" }).allowed === true),
+  )
+  ok(
+    "cloud-ok + public allows EVERY named cloud route",
+    cloudRoutes.every((id) => decide(id, { mode: "cloud-ok", evidenceClass: "public" }).allowed === true),
+  )
+  ok(
+    "cloud-ok + sensitive denies EVERY named cloud route",
+    cloudRoutes.every((id) => decide(id, { mode: "cloud-ok", evidenceClass: "sensitive" }).allowed === false),
+  )
+
+  // Honesty gate: a declared provider is either routable today, or explicitly
+  // labelled capability-only. Config presence alone is never "live support".
+  const routedProviders = new Set(routeIds.map((id) => routes[id].provider))
+  ok(
+    "every provider declares route_status",
+    Object.values(providers).every((p) => p.route_status === "named-route" || p.route_status === "capability-only"),
+  )
+  ok(
+    "route_status: named-route <=> a named route actually exists",
+    Object.entries(providers).every(([name, p]) =>
+      p.route_status === "named-route" ? routedProviders.has(name) : !routedProviders.has(name),
+    ),
+  )
+  ok(
+    "every product-supported local provider has a named route",
+    ["local-vllm", "local-ollama", "local-llamacpp", "local-lmstudio", "local-nim"].every(
+      (name) => providers[name]?.route_status === "named-route" && routedProviders.has(name),
+    ),
+  )
+
+  // Docs must not present capability-only entries as live support.
+  const support = readFileSync(fileURLToPath(new URL("../docs/LLM_SUPPORT_2026.md", import.meta.url)), "utf8")
+  const capabilityOnly = Object.entries(providers)
+    .filter(([, p]) => p.route_status === "capability-only")
+    .map(([name]) => name)
+  ok("there are capability-only providers to label", capabilityOnly.length > 0)
+  ok(
+    "LLM_SUPPORT_2026 labels capability-only providers experimental/unverified",
+    /experimental.*unverified|unverified.*experimental/i.test(support) &&
+      /capability-only/i.test(support) &&
+      !/planned\/stubbed/i.test(support),
+  )
+  const tracking = readFileSync(fileURLToPath(new URL("../docs/LOCAL_LLM_FIX_TRACKING.md", import.meta.url)), "utf8")
+  ok(
+    "LOCAL_LLM_FIX_TRACKING does not still call merged PRs 'open'",
+    !/implemented in open PRs/i.test(tracking) && /merged/i.test(tracking),
+  )
+}
+
+console.log("oauth route env containment:")
+{
+  const { loadRoutes, oauthRuntimeEnv } = await import("../packages/caseforge-cli/dist/src/config.js")
+  const routes = loadRoutes()
+
+  // A subscription-OAuth run must never inherit the ambient platform API key
+  // for its own provider, or the engine can silently bill/authenticate the
+  // wrong way.
+  const chatgpt = oauthRuntimeEnv(routes["chatgpt-oauth"], { OPENAI_API_KEY: "sk-ambient", XAI_API_KEY: "xai-ambient" }, { authContent: '{"openai":{"type":"oauth"}}' })
+  ok("chatgpt-oauth clears ambient OPENAI_API_KEY", chatgpt.OPENAI_API_KEY === undefined)
+  ok("chatgpt-oauth loads the openai credential", chatgpt.OPENCODE_AUTH_CONTENT === '{"openai":{"type":"oauth"}}')
+
+  const xai = oauthRuntimeEnv(routes["xai-grok-oauth"], { XAI_API_KEY: "xai-ambient", OPENAI_API_KEY: "sk-ambient" }, { authContent: '{"xai":{"type":"oauth"}}' })
+  ok("xai-grok-oauth clears ambient XAI_API_KEY", xai.XAI_API_KEY === undefined)
+  ok("xai-grok-oauth loads the xai credential", xai.OPENCODE_AUTH_CONTENT === '{"xai":{"type":"oauth"}}')
+
+  // An api-key route is the opposite contract: its key must survive.
+  const apiKey = oauthRuntimeEnv(routes["xai-grok"], { XAI_API_KEY: "xai-ambient" }, {})
+  ok("api-key route keeps its platform key", apiKey.XAI_API_KEY === "xai-ambient")
+  ok("api-key route injects no oauth credential", apiKey.OPENCODE_AUTH_CONTENT === undefined)
+
+  // An operator-supplied credential wins over a file read.
+  const ambient = oauthRuntimeEnv(routes["xai-grok-oauth"], { OPENCODE_AUTH_CONTENT: '{"xai":{"type":"oauth"}}' }, { authContent: "FROM_FILE" })
+  ok("ambient OPENCODE_AUTH_CONTENT is not overwritten", ambient.OPENCODE_AUTH_CONTENT === '{"xai":{"type":"oauth"}}')
+
+  const input = { XAI_API_KEY: "xai-ambient" }
+  oauthRuntimeEnv(routes["xai-grok-oauth"], input, {})
+  ok("oauthRuntimeEnv does not mutate its input env", input.XAI_API_KEY === "xai-ambient")
+}
+
+console.log("grok cloud smoke evidence selection:")
+{
+  const { resolveEvidenceInput } = await import("../packages/caseforge-cli/dist/src/commands/investigate.js")
+  const artifactFixtures = fileURLToPath(new URL("../fixtures/synthetic", import.meta.url))
+
+  // fixtures/synthetic holds *run artifacts* (verdict.json, audit.jsonl), not a
+  // case_open image — it can never be investigated. The smoke defaulted to it.
+  let threw = false
+  try {
+    resolveEvidenceInput(artifactFixtures)
+  } catch {
+    threw = true
+  }
+  ok("fixtures/synthetic is not investigable evidence", threw)
+
+  const smoke = readFileSync(fileURLToPath(new URL("../scripts/grok-cloud-smoke.sh", import.meta.url)), "utf8")
+  ok("grok smoke does not default evidence to the artifact fixture dir", !/CASEFORGE_GROK_EVIDENCE:-fixtures\/synthetic/.test(smoke))
+  ok("grok smoke requires a supported case_open extension", /evtx|pcap|case_open/i.test(smoke) && /SUPPORTED_EVIDENCE_EXTS|case_open extension/.test(smoke))
+  ok("grok smoke skips (not fails) when no supported evidence is present", /SKIP: no supported/.test(smoke))
+  ok("grok smoke stays cloud-ok + synthetic\\/public only", /--privacy cloud-ok/.test(smoke) && /EVIDENCE_CLASS:-public|EVIDENCE_CLASS:-synthetic/.test(smoke))
+}
+
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail === 0 ? 0 : 1)

@@ -46,6 +46,37 @@ routes:
     tool_calling: unknown
     privacy_locations: [local]
 
+  # llama.cpp `llama-server` OpenAI-compatible endpoint. Tool calling depends on
+  # the GGUF chat template; quantized small models are inconsistent (see
+  # provider-capabilities.yaml). Override endpoint/model with VERDICT_LLM_BASEURL
+  # / VERDICT_LLM_MODEL.
+  local-llamacpp:
+    provider: local-llamacpp
+    base_url: http://localhost:8080/v1
+    model: qwen2.5-coder:32b
+    api_key: null
+    tool_calling: unknown
+    privacy_locations: [local]
+
+  # LM Studio local server (default port 1234). Tool support is per loaded model.
+  local-lmstudio:
+    provider: local-lmstudio
+    base_url: http://localhost:1234/v1
+    model: qwen2.5-coder:32b
+    api_key: null
+    tool_calling: unknown
+    privacy_locations: [local]
+
+  # Self-hosted NVIDIA NIM microservice. Local inference calls need no API key
+  # (the NGC key is only needed to pull the container image).
+  local-nim:
+    provider: local-nim
+    base_url: http://localhost:8000/v1
+    model: meta/llama-3.1-8b-instruct
+    api_key: null
+    tool_calling: unknown
+    privacy_locations: [local]
+
   # Self-hosted Ollama on a remote box on YOUR network (e.g. a DGX Spark GB10).
   # Still privacy_locations: [local] — evidence stays on your own hardware, no
   # cloud egress. Override the endpoint/model at runtime without editing this file:

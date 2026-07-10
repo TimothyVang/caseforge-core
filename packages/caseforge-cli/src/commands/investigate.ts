@@ -19,6 +19,7 @@ import {
   loadRoutes,
   loadRoutingPolicy,
   normalizeOpenAiCompatBaseUrl,
+  oauthRuntimeEnv,
   resolveCandidate,
   opencodeProfileDir,
   routeLocation,
@@ -564,12 +565,19 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
     if (status.source === "file") oauthAuthPath = status.authPath
   }
 
-  // Map a route to an opencode model ref + env.
-  const env: NodeJS.ProcessEnv = withDfirContainment({
-    ...process.env,
-    OPENCODE_CONFIG: join(opencodeProfileDir(), "opencode.json"),
-    OPENCODE_CONFIG_DIR: opencodeProfileDir(),
-  })
+  // Map a route to an opencode model ref + env. OAuth routes drop their own
+  // provider's ambient platform key and carry the subscription credential.
+  const env: NodeJS.ProcessEnv = withDfirContainment(
+    oauthRuntimeEnv(
+      route,
+      {
+        ...process.env,
+        OPENCODE_CONFIG: join(opencodeProfileDir(), "opencode.json"),
+        OPENCODE_CONFIG_DIR: opencodeProfileDir(),
+      },
+      { authContent: oauthAuthPath ? readFileSync(oauthAuthPath, "utf8") : undefined },
+    ),
+  )
   let modelRef: string
   if (routeLocation(route) === "local") {
     modelRef = "verdict-local/local"
@@ -592,17 +600,9 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
       env.VERDICT_FORCE_TOOL_CHOICE = process.env.VERDICT_FORCE_TOOL_CHOICE ?? "1"
     }
   } else {
-    // cloud provider handled by opencode's built-in catalog + auth
+    // cloud provider handled by opencode's built-in catalog + auth; the OAuth
+    // key/credential containment already happened in oauthRuntimeEnv above.
     modelRef = `${route.provider}/${route.model}`
-    if (routeRequiresChatGptOAuth(route)) {
-      delete env.OPENAI_API_KEY
-      if (!env.OPENCODE_AUTH_CONTENT && oauthAuthPath) env.OPENCODE_AUTH_CONTENT = readFileSync(oauthAuthPath, "utf8")
-    }
-    if (routeRequiresXaiOAuth(route)) {
-      // SuperGrok OAuth only — do not fall through to platform API key.
-      delete env.XAI_API_KEY
-      if (!env.OPENCODE_AUTH_CONTENT && oauthAuthPath) env.OPENCODE_AUTH_CONTENT = readFileSync(oauthAuthPath, "utf8")
-    }
   }
 
   const command = opts.command ?? "triage"
