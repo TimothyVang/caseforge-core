@@ -53,13 +53,54 @@ if [ -z "$BIN" ]; then
   fi
 fi
 
-EVIDENCE="${CASEFORGE_GROK_EVIDENCE:-fixtures/synthetic}"
-if [ ! -e "$EVIDENCE" ] && [ -e "${VERDICT_DFIR_HOME}/evidence/DE_1102_security_log_cleared.evtx" ]; then
-  EVIDENCE="${VERDICT_DFIR_HOME}/evidence/DE_1102_security_log_cleared.evtx"
+# Evidence must be a case_open image. `fixtures/synthetic` holds *run artifacts*
+# (verdict.json, audit.jsonl) and is NOT investigable — never default to it.
+SUPPORTED_EVIDENCE_EXTS="evtx pcap pcapng e01 dd raw aff mem ova zip"
+
+# True when $1 is a file with a supported case_open extension, or a directory
+# containing at least one such file.
+has_supported_evidence() {
+  local path="$1" ext
+  [ -e "$path" ] || return 1
+  for ext in $SUPPORTED_EVIDENCE_EXTS; do
+    if [ -f "$path" ]; then
+      case "$(printf '%s' "$path" | tr '[:upper:]' '[:lower:]')" in *".$ext") return 0 ;; esac
+    elif [ -d "$path" ]; then
+      if find "$path" -maxdepth 1 -type f -iname "*.$ext" -print -quit | grep -q .; then return 0; fi
+    fi
+  done
+  return 1
+}
+
+# Public DFIR fixture: EVTX 1102 (audit log cleared). Cloud-safe (public).
+PUBLIC_EVTX="${VERDICT_DFIR_HOME}/evidence/DE_1102_security_log_cleared.evtx"
+
+if [ -n "${CASEFORGE_GROK_EVIDENCE:-}" ]; then
+  EVIDENCE="$CASEFORGE_GROK_EVIDENCE"
+  EVIDENCE_CLASS="${CASEFORGE_GROK_EVIDENCE_CLASS:-synthetic}"
+elif has_supported_evidence "$PUBLIC_EVTX"; then
+  EVIDENCE="$PUBLIC_EVTX"
   EVIDENCE_CLASS="${CASEFORGE_GROK_EVIDENCE_CLASS:-public}"
 else
-  EVIDENCE_CLASS="${CASEFORGE_GROK_EVIDENCE_CLASS:-synthetic}"
+  echo "SKIP: no supported case_open evidence found (looked for $PUBLIC_EVTX)."
+  echo "      Set CASEFORGE_GROK_EVIDENCE to a public/synthetic file with one of: $SUPPORTED_EVIDENCE_EXTS"
+  exit 0
 fi
+
+if ! has_supported_evidence "$EVIDENCE"; then
+  echo "SKIP: no supported case_open extension for evidence: $EVIDENCE"
+  echo "      Supported: $SUPPORTED_EVIDENCE_EXTS"
+  exit 0
+fi
+
+# Cloud egress guard: only synthetic/public/approved may ever leave the host.
+case "$EVIDENCE_CLASS" in
+  synthetic|public|approved) ;;
+  *)
+    echo "FAIL: refusing cloud egress for evidence class '$EVIDENCE_CLASS'"
+    exit 1
+    ;;
+esac
 
 echo "==> Grok cloud smoke"
 echo "    route=$ROUTE evidence=$EVIDENCE class=$EVIDENCE_CLASS privacy=cloud-ok"

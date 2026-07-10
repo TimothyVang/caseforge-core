@@ -69,6 +69,39 @@ export function routeRequiresXaiOAuth(route: RouteConfig): boolean {
 }
 
 /**
+ * Platform API-key env var per provider. A subscription-OAuth route must never
+ * inherit its own provider's ambient key: the engine would otherwise silently
+ * authenticate (and bill) as a platform API user instead of the subscription.
+ */
+const PROVIDER_PLATFORM_KEY_ENV: Readonly<Record<string, string>> = {
+  openai: "OPENAI_API_KEY",
+  xai: "XAI_API_KEY",
+}
+
+/**
+ * Build the child-process env for `route`, returning a NEW object.
+ *
+ * For an OAuth route: drop the provider's ambient platform key and load the
+ * provider's opencode credential (unless the caller already supplied one via
+ * the ambient `OPENCODE_AUTH_CONTENT`). For an api-key route: leave the env
+ * alone — its platform key is exactly what it needs.
+ */
+export function oauthRuntimeEnv(
+  route: RouteConfig,
+  baseEnv: NodeJS.ProcessEnv,
+  opts: { authContent?: string } = {},
+): NodeJS.ProcessEnv {
+  const isOAuth = routeRequiresChatGptOAuth(route) || routeRequiresXaiOAuth(route)
+  if (!isOAuth) return { ...baseEnv }
+
+  const env: NodeJS.ProcessEnv = { ...baseEnv }
+  const platformKey = PROVIDER_PLATFORM_KEY_ENV[route.provider]
+  if (platformKey) delete env[platformKey]
+  if (!env.OPENCODE_AUTH_CONTENT && opts.authContent) env.OPENCODE_AUTH_CONTENT = opts.authContent
+  return env
+}
+
+/**
  * Repo root: walk up from this module until a directory containing
  * `configs/model-routes.yaml` is found. Robust to running from `src` or `dist`.
  */
