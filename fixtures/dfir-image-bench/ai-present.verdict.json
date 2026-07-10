@@ -1,0 +1,39 @@
+{
+  "case_id": "ai-present-synthetic",
+  "verdict": "SUSPICIOUS",
+  "agent": "verdict (gpt-oss:20b)",
+  "_fixture_note": "Synthetic, hand-crafted for Proof A: seeds documented Tier-1 AI-assistance integration artifacts so the AI-degree detector can be proven. All values are fake/redacted; not a real key or a real run.",
+  "attack_coverage": { "observed_techniques": ["T1059.001"] },
+  "attack_story": {
+    "attack_chain": [
+      { "order": 1, "phase": "Execution", "mitre_technique": "T1059.001", "named_technique": "PowerShell", "cves": [] }
+    ]
+  },
+  "indicators": {
+    "accounts": ["CORP\\svc-backup"],
+    "file_paths": ["helper.ps1", "history"],
+    "processes": ["C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"],
+    "services": [],
+    "hosts": ["SRV-APP-02"],
+    "ip_addresses": ["10.0.5.20"],
+    "hashes": [],
+    "domains": [],
+    "urls": []
+  },
+  "findings": [
+    {
+      "finding_id": "f-ai-embedded-key",
+      "mitre_technique": "T1059.001",
+      "artifact_path": "C:\\Users\\svc-backup\\AppData\\Local\\Temp\\helper.ps1",
+      "description": "Dropped PowerShell helper embeds a hard-coded LLM provider API key (sk-ant-api03-EXAMPLE-REDACTED) and a prompts-as-code block instructing the model to 'Return only commands, without markdown'.",
+      "cves": []
+    },
+    {
+      "finding_id": "f-ai-local-llm",
+      "mitre_technique": "T1059.001",
+      "artifact_path": "C:\\Users\\svc-backup\\.ollama\\history",
+      "description": "Local LLM runtime artifact recovered: ~/.ollama/history contains operator prompt history, indicating a locally-hosted model was run on-host for OPSEC.",
+      "cves": []
+    }
+  ]
+}
