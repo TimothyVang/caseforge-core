@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url"
 import { assertModelAllowed, DEFAULT_PRIVACY_MODE, PrivacyViolationError, assembleVerdictFromAudit } from "@verdict/caseforge-sdk"
 import type { EvidenceClass, PrivacyMode } from "@verdict/caseforge-sdk"
 import { chatGptOAuthStatus, printChatGptOAuthSetup, verdictLauncherPath } from "../chatgpt-auth.js"
+import { printXaiOAuthSetup, xaiOAuthStatus } from "../xai-auth.js"
 import {
   loadRoutes,
   loadRoutingPolicy,
@@ -22,6 +23,7 @@ import {
   opencodeProfileDir,
   routeLocation,
   routeRequiresChatGptOAuth,
+  routeRequiresXaiOAuth,
 } from "../config.js"
 import { verify } from "./verify.js"
 
@@ -547,6 +549,20 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
     }
     if (status.source === "file") oauthAuthPath = status.authPath
   }
+  if (routeRequiresXaiOAuth(route)) {
+    if (route.provider !== "xai") {
+      console.error(`route '${routeId}' is marked auth=xai-oauth but provider is '${route.provider}', expected 'xai'.`)
+      return 2
+    }
+    const status = xaiOAuthStatus()
+    if (!status.ok) {
+      console.error(`route '${routeId}' requires SuperGrok subscription OAuth, but it is not ready: ${status.reason}`)
+      console.error("XAI_API_KEY platform keys are not accepted for this route.")
+      printXaiOAuthSetup()
+      return 1
+    }
+    if (status.source === "file") oauthAuthPath = status.authPath
+  }
 
   // Map a route to an opencode model ref + env.
   const env: NodeJS.ProcessEnv = withDfirContainment({
@@ -580,6 +596,11 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
     modelRef = `${route.provider}/${route.model}`
     if (routeRequiresChatGptOAuth(route)) {
       delete env.OPENAI_API_KEY
+      if (!env.OPENCODE_AUTH_CONTENT && oauthAuthPath) env.OPENCODE_AUTH_CONTENT = readFileSync(oauthAuthPath, "utf8")
+    }
+    if (routeRequiresXaiOAuth(route)) {
+      // SuperGrok OAuth only — do not fall through to platform API key.
+      delete env.XAI_API_KEY
       if (!env.OPENCODE_AUTH_CONTENT && oauthAuthPath) env.OPENCODE_AUTH_CONTENT = readFileSync(oauthAuthPath, "utf8")
     }
   }

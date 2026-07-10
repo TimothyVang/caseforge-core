@@ -118,6 +118,17 @@ providers:
     streaming: true
     notes: Native OpenAI API. Reliable function/tool calling on capable models.
 
+  xai:
+    location: cloud
+    needs_api_key: true
+    env_var: XAI_API_KEY
+    tool_calling: true
+    streaming: true
+    notes: >-
+      xAI Grok API (https://api.x.ai/v1). Native provider id in the verdict engine
+      is `xai` (model refs like xai/grok-3). Use only when privacy mode allows
+      cloud egress (cloud-ok / redacted-cloud). Set XAI_API_KEY from the xAI console.
+
   anthropic:
     location: cloud
     needs_api_key: true
