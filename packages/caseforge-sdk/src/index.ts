@@ -20,6 +20,8 @@ export {
   assertModelAllowed,
   PrivacyViolationError,
   redact,
+  cloudAckGate,
+  CLOUD_ACK_ENV,
 } from "./privacy.js"
 export type {
   PrivacyMode,
@@ -29,7 +31,21 @@ export type {
   PrivacyContext,
   PrivacyDecision,
   RedactionOptions,
+  CloudAckOptions,
+  CloudAckResult,
 } from "./privacy.js"
+
+export {
+  CASEFORGE_RUN_RECORD,
+  RUNTIME_RUN_RESULT,
+  readUsedFallback,
+  readRuntimeRunResult,
+  readCaseforgeRun,
+  writeCaseforgeRun,
+  assembleRunRecord,
+  attestUsedFallback,
+} from "./runrecord.js"
+export type { CaseforgeRunRecord, UsedFallbackSource, AssembleRunRecordInput } from "./runrecord.js"
 
 export { Finding, EvidenceCitation, VerdictWord, validateFinding, validateFindings } from "./finding.js"
 export type { ValidationResult } from "./finding.js"

@@ -11,7 +11,17 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSyn
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { assertModelAllowed, DEFAULT_PRIVACY_MODE, PrivacyViolationError, assembleVerdictFromAudit } from "@verdict/caseforge-sdk"
+import {
+  assertModelAllowed,
+  DEFAULT_PRIVACY_MODE,
+  PrivacyViolationError,
+  assembleVerdictFromAudit,
+  cloudAckGate,
+  CLOUD_ACK_ENV,
+  readRuntimeRunResult,
+  assembleRunRecord,
+  writeCaseforgeRun,
+} from "@verdict/caseforge-sdk"
 import type { EvidenceClass, PrivacyMode } from "@verdict/caseforge-sdk"
 import { chatGptOAuthStatus, printChatGptOAuthSetup, verdictLauncherPath } from "../chatgpt-auth.js"
 import { printXaiOAuthSetup, xaiOAuthStatus } from "../xai-auth.js"
@@ -461,6 +471,22 @@ export interface InvestigateOpts {
   command?: string // opencode slash command to drive (default: triage)
   runDir?: string // explicit run/case dir to verify afterwards
   noVerify?: boolean
+  cloudAck?: boolean // operator acknowledgement of outward cloud egress (--cloud-ack)
+}
+
+/**
+ * Record caseforge's run provenance (`used_fallback`) into the sealed run dir,
+ * reading the value from the runtime run result when present and otherwise from
+ * caseforge's own path selection. Best-effort — never blocks verification.
+ */
+async function recordRunProvenance(runDir: string, engineUsedFallback: boolean): Promise<void> {
+  try {
+    const runtimeResult = await readRuntimeRunResult(runDir)
+    const record = await writeCaseforgeRun(runDir, assembleRunRecord({ runtimeResult, engineUsedFallback }))
+    console.error(`[caseforge] recorded run provenance -> caseforge_run.json (used_fallback=${record.used_fallback}, source=${record.used_fallback_source})`)
+  } catch (e) {
+    console.error(`[caseforge] could not record run provenance: ${(e as Error).message}`)
+  }
 }
 
 function isRouteAllowed(id: string, opts: { privacy: PrivacyMode; evidenceClass: EvidenceClass }): boolean {
@@ -535,6 +561,21 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
   }
 
   const { route } = resolved
+
+  // Operator gate on outward cloud egress. Distinct from the privacy router:
+  // even a privacy-permitted cloud route (cloud-ok / approved) must not make an
+  // outward call unless the operator has explicitly acknowledged the egress.
+  // Defaults OFF (CASEFORGE_CLOUD_ACK unset / --cloud-ack absent) => refuse.
+  const ackGate = cloudAckGate({
+    location: routeLocation(route),
+    ack: process.env[CLOUD_ACK_ENV],
+    ackFlag: opts.cloudAck,
+  })
+  if (!ackGate.allowed) {
+    console.error(`REFUSED: ${ackGate.reason}`)
+    return 1
+  }
+
   let oauthAuthPath: string | undefined
   if (routeRequiresChatGptOAuth(route)) {
     if (route.provider !== "openai") {
@@ -649,6 +690,8 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
     if (evidence.caseOpenPath !== evidence.requestedPath) console.error(`[caseforge] case_open=${evidence.caseOpenPath}`)
     const engineDir = runLocalEvtxAutoFallback(evidence, env, "primary")
     if (engineDir) {
+      // Deterministic engine (not an agent/model) produced the seal.
+      await recordRunProvenance(engineDir, true)
       console.error(`\n[caseforge] verifying primary engine run: ${engineDir}`)
       return await verify([engineDir])
     }
@@ -725,6 +768,7 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
     console.error("[caseforge] the run is incomplete until a new case directory is sealed and verified.")
     const fallbackRunDir = runLocalEvtxAutoFallback(evidence, env)
     if (fallbackRunDir) {
+      await recordRunProvenance(fallbackRunDir, true)
       console.error(`\n[caseforge] verifying deterministic EVTX fallback run: ${fallbackRunDir}`)
       return await verify([fallbackRunDir])
     }
@@ -734,12 +778,16 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
   // structured verdict.json report from the audit chain, then validate.
   finalizeManifestVerify(runDir, env.VERDICT_DFIR_HOME)
   await finalizeVerdictJson(runDir, env.VERDICT_DFIR_HOME)
+  // Agent/runtime produced this run — used_fallback comes from its run result
+  // (engineUsedFallback=false: caseforge's deterministic engine did not fire).
+  await recordRunProvenance(runDir, false)
   console.error(`\n[caseforge] verifying produced run: ${runDir}`)
   let verifyCode = await verify([runDir])
   let fallbackVerified = false
   if (verifyCode !== 0 || !caseIsSealed(runDir)) {
     const fallbackRunDir = runLocalEvtxAutoFallback(evidence, env)
     if (fallbackRunDir) {
+      await recordRunProvenance(fallbackRunDir, true)
       console.error(`\n[caseforge] verifying deterministic EVTX fallback run: ${fallbackRunDir}`)
       verifyCode = await verify([fallbackRunDir])
       fallbackVerified = verifyCode === 0

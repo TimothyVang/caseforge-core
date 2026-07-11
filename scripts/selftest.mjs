@@ -601,5 +601,151 @@ console.log("grok cloud smoke evidence selection:")
   ok("grok smoke stays cloud-ok + synthetic\\/public only", /--privacy cloud-ok/.test(smoke) && /EVIDENCE_CLASS:-public|EVIDENCE_CLASS:-synthetic/.test(smoke))
 }
 
+// --- m28: used_fallback evidenced from the runtime run result (not a constant) --
+//
+// m27 residual: used_fallback=0 was ASSERTED for the cloud path but recorded in
+// no custody artifact and had to be retracted. The value must be READ from the
+// runtime run result and recorded so `caseforge verify` can attest it — never
+// synthesized.
+console.log("used_fallback attestation (runtime run result, not a constant):")
+try {
+  const { readUsedFallback, assembleRunRecord, writeCaseforgeRun, readCaseforgeRun, attestUsedFallback } = await import(
+    "../packages/caseforge-sdk/dist/src/index.js"
+  )
+
+  // Only a real boolean is honored; anything else is null (never synthesized).
+  ok("readUsedFallback reads a true boolean", readUsedFallback({ used_fallback: true }) === true)
+  ok("readUsedFallback reads a false boolean", readUsedFallback({ used_fallback: false }) === false)
+  ok("readUsedFallback missing field => null (no synthesis)", readUsedFallback({}) === null)
+  ok(
+    "readUsedFallback non-boolean/absent => null (no coercion)",
+    readUsedFallback({ used_fallback: "0" }) === null && readUsedFallback(undefined) === null && readUsedFallback(1) === null,
+  )
+
+  // The recorded value is SOURCED from the runtime result — differing inputs
+  // yield differing records, so it cannot be a hardcoded constant.
+  const rTrue = assembleRunRecord({ runtimeResult: { used_fallback: true } })
+  const rFalse = assembleRunRecord({ runtimeResult: { used_fallback: false } })
+  ok("record sources true from runtime run result", rTrue.used_fallback === true && rTrue.used_fallback_source === "runtime_run_result")
+  ok("record sources false from runtime run result", rFalse.used_fallback === false && rFalse.used_fallback_source === "runtime_run_result")
+  ok("record is not a constant (true != false for differing inputs)", rTrue.used_fallback !== rFalse.used_fallback)
+  ok(
+    "no runtime result + no orchestration => unknown (never a 0/false constant)",
+    assembleRunRecord({}).used_fallback === null && assembleRunRecord({}).used_fallback_source === "unknown",
+  )
+  const rOrch = assembleRunRecord({ engineUsedFallback: true })
+  ok(
+    "caseforge deterministic-engine fallback records true from its own control flow",
+    rOrch.used_fallback === true && rOrch.used_fallback_source === "caseforge_orchestration",
+  )
+  ok(
+    "runtime run result wins over caseforge orchestration when both present",
+    assembleRunRecord({ runtimeResult: { used_fallback: false }, engineUsedFallback: true }).used_fallback === false,
+  )
+
+  // Round-trip through the caseforge-owned run artifact + attestation.
+  const rd = mkdtempSync(join(tmpdir(), "caseforge-usedfb-"))
+  try {
+    await writeCaseforgeRun(rd, rTrue)
+    const back = await readCaseforgeRun(rd)
+    ok("caseforge_run.json round-trips used_fallback", back?.used_fallback === true && back?.used_fallback_source === "runtime_run_result")
+    const attested = await attestUsedFallback(rd)
+    ok("attestUsedFallback returns the recorded record", attested.used_fallback === true && attested.used_fallback_source === "runtime_run_result")
+  } finally {
+    rmSync(rd, { recursive: true, force: true })
+  }
+
+  // With no caseforge record, attest derives live from the runtime run_result.json.
+  const rd2 = mkdtempSync(join(tmpdir(), "caseforge-usedfb2-"))
+  try {
+    writeFileSync(join(rd2, "run_result.json"), JSON.stringify({ used_fallback: true }))
+    const attested = await attestUsedFallback(rd2)
+    ok("attest derives used_fallback from runtime run_result.json", attested.used_fallback === true && attested.used_fallback_source === "runtime_run_result")
+    const bare = mkdtempSync(join(tmpdir(), "caseforge-usedfb3-"))
+    try {
+      const a = await attestUsedFallback(bare)
+      ok("attest reports unknown when nothing recorded (no synthesis)", a.used_fallback === null && a.used_fallback_source === "unknown")
+    } finally {
+      rmSync(bare, { recursive: true, force: true })
+    }
+  } finally {
+    rmSync(rd2, { recursive: true, force: true })
+  }
+} catch (e) {
+  ok(`used_fallback attestation section loaded (${(e && e.message) || e})`, false)
+}
+
+console.log("verify surfaces used_fallback:")
+try {
+  const { verify } = await import("../packages/caseforge-cli/dist/src/commands/verify.js")
+  const rd = mkdtempSync(join(tmpdir(), "caseforge-verify-fb-"))
+  try {
+    // A custody-sealed run (audit-chain seal, no verdict.json report).
+    writeFileSync(join(rd, "run.manifest.json"), "{}")
+    writeFileSync(
+      join(rd, "audit.jsonl"),
+      JSON.stringify({ kind: "tool_call_output", payload: { tool_name: "findevil-agent-mcp_manifest_verify", output: { overall: true } } }) + "\n",
+    )
+    writeFileSync(join(rd, "run_result.json"), JSON.stringify({ used_fallback: true }))
+    const capture = async () => {
+      const lines = []
+      const orig = console.log
+      console.log = (...a) => lines.push(a.join(" "))
+      let code
+      try {
+        code = await verify([rd])
+      } finally {
+        console.log = orig
+      }
+      return { out: lines.join("\n"), code }
+    }
+    const yes = await capture()
+    ok("verify surfaces used_fallback: yes sourced from the runtime run result", /used_fallback:\s*yes/i.test(yes.out) && /runtime_run_result/.test(yes.out))
+    ok("verify still returns complete (attestation is informational, not a gate)", yes.code === 0)
+
+    rmSync(join(rd, "run_result.json"))
+    const unknown = await capture()
+    ok("verify reports used_fallback unknown when unrecorded (no synthesized 'no')", /used_fallback:\s*unknown/i.test(unknown.out))
+  } finally {
+    rmSync(rd, { recursive: true, force: true })
+  }
+} catch (e) {
+  ok(`verify used_fallback section loaded (${(e && e.message) || e})`, false)
+}
+
+// --- m28: operator gate on outward cloud investigations --------------------
+//
+// m27 residual: the lane harness permitted an UNGATED outward cloud call. A
+// cloud-privacy investigation must refuse unless the operator explicitly
+// acknowledges the egress (CASEFORGE_CLOUD_ACK=1), defaulting off.
+console.log("operator cloud-ack gate:")
+try {
+  const { cloudAckGate, CLOUD_ACK_ENV } = await import("../packages/caseforge-sdk/dist/src/index.js")
+  ok("ack env is CASEFORGE_CLOUD_ACK", CLOUD_ACK_ENV === "CASEFORGE_CLOUD_ACK")
+  ok("local route needs no operator ack", cloudAckGate({ location: "local" }).allowed === true && cloudAckGate({ location: "local" }).required === false)
+  ok("cloud route refuses without ack (default off)", cloudAckGate({ location: "cloud", ack: undefined }).allowed === false)
+  ok("cloud route refuses with ack=0", cloudAckGate({ location: "cloud", ack: "0" }).allowed === false)
+  ok("cloud route proceeds with ack=1", cloudAckGate({ location: "cloud", ack: "1" }).allowed === true)
+  ok("cloud route proceeds with ack=true", cloudAckGate({ location: "cloud", ack: "true" }).allowed === true)
+  ok("cloud route proceeds with --cloud-ack flag", cloudAckGate({ location: "cloud", ackFlag: true }).allowed === true)
+  ok("refusal reason names the ack env var", /CASEFORGE_CLOUD_ACK/.test(cloudAckGate({ location: "cloud" }).reason))
+} catch (e) {
+  ok(`cloud-ack gate section loaded (${(e && e.message) || e})`, false)
+}
+
+console.log("investigate cloud-ack + used_fallback wiring:")
+{
+  const src = readFileSync(fileURLToPath(new URL("../packages/caseforge-cli/src/commands/investigate.ts", import.meta.url)), "utf8")
+  ok(
+    "investigate gates outward cloud calls on operator ack BEFORE any runtime spawn",
+    /cloudAckGate/.test(src) && src.indexOf("cloudAckGate") < src.indexOf("spawn(bin") && /CLOUD_ACK_ENV|CASEFORGE_CLOUD_ACK/.test(src),
+  )
+  ok("investigate refuses ungated cloud without a live call", /ackGate\.allowed/.test(src) && /REFUSED/.test(src))
+  ok(
+    "investigate records used_fallback from the runtime run result (not a constant)",
+    /readRuntimeRunResult/.test(src) && /(assembleRunRecord|writeCaseforgeRun)/.test(src),
+  )
+}
+
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail === 0 ? 0 : 1)
