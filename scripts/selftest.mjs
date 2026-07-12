@@ -747,6 +747,18 @@ console.log("investigate cloud-ack + used_fallback wiring:")
     "investigate records used_fallback from the runtime run result (not a constant)",
     /readRuntimeRunResult/.test(src) && /(assembleRunRecord|writeCaseforgeRun)/.test(src),
   )
+  ok(
+    "investigate launcher-reserves case_open via FINDEVIL_CASE_OPEN_BINDING",
+    /singleEvidenceRegistration/.test(src) && /FINDEVIL_CASE_OPEN_BINDING/.test(src),
+  )
+  ok(
+    "investigate sets parsed-evidence egress ack for cloud routes",
+    /FINDEVIL_ACKNOWLEDGE_PARSED_EVIDENCE_EGRESS/.test(src) && /isCloudRoute/.test(src),
+  )
+  ok(
+    "case_open tool hint includes expected_sha256 when reserved",
+    /expected_sha256 exactly/.test(src),
+  )
 }
 
 console.log("offline DFIR scorecard grader:")
