@@ -7,7 +7,7 @@
  * route is refused outright — no evidence leaves the host.
  */
 import { spawn, spawnSync, execFileSync } from "node:child_process"
-import { createHash } from "node:crypto"
+import { createHash, randomBytes } from "node:crypto"
 import { createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
@@ -683,6 +683,15 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
     env.FINDEVIL_ACKNOWLEDGE_PARSED_EVIDENCE_EGRESS =
       process.env.FINDEVIL_ACKNOWLEDGE_PARSED_EVIDENCE_EGRESS ?? "1"
   }
+
+  // Launcher-held controller capability for findevil-agent-mcp custody tools
+  // (audit_append / manifest_finalize / …). The secret stays in process env —
+  // never in model-visible tool schemas. agent_mcp authorizes when env is set
+  // and the hidden field is absent (stdio MCP owned by this launcher).
+  if (!env.FINDEVIL_CONTROLLER_CAPABILITY || env.FINDEVIL_CONTROLLER_CAPABILITY.length !== 64) {
+    env.FINDEVIL_CONTROLLER_CAPABILITY = randomBytes(32).toString("hex")
+  }
+  console.error("[caseforge] launcher controller capability set for agent-mcp seal tools")
 
   // Launcher-reserve the case_open source so findevil-mcp accepts the host path.
   // Without FINDEVIL_CASE_OPEN_BINDING, case_open fails with unreserved source.
