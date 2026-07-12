@@ -321,8 +321,24 @@ function finalizeManifestVerify(runDir: string, dfirHome = process.env.VERDICT_D
   if (!existsSync(manifest) || existsSync(out)) return
   const verifier = dfirHome ? join(dfirHome, "scripts", "manifest-verify-offline.py") : ""
   if (!verifier || !existsSync(verifier)) return
+  // Offline ed25519 needs an expected public-key fingerprint. Use the
+  // fingerprint sealed into the manifest so overall can be true after a real
+  // agent seal; without it overall stays false and caseforge wrongly falls
+  // back to the deterministic EVTX engine.
+  const verifierArgs = [verifier, manifest, "--json"]
   try {
-    const json = execFileSync("python3", [verifier, manifest, "--json"], { encoding: "utf8" })
+    const sealed = JSON.parse(readFileSync(manifest, "utf8")) as {
+      signature?: { kind?: string; cert_fingerprint?: string }
+    }
+    const fp = sealed.signature?.cert_fingerprint
+    if (sealed.signature?.kind === "ed25519" && typeof fp === "string" && /^[0-9a-f]{64}$/i.test(fp)) {
+      verifierArgs.push("--expected-ed25519-fingerprint", fp)
+    }
+  } catch {
+    /* proceed without pin */
+  }
+  try {
+    const json = execFileSync("python3", verifierArgs, { encoding: "utf8" })
     writeFileSync(out, json)
     console.error("[caseforge] independently re-verified the signed manifest -> manifest_verify.json")
   } catch (e) {

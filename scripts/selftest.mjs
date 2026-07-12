@@ -779,6 +779,10 @@ console.log("investigate cloud-ack + used_fallback wiring:")
     "investigate pins reserved audit/manifest paths and report_qa for seal",
     /report_qa_sha256/.test(src) && /LAB_REPORT_QA_SHA256/.test(src),
   )
+  ok(
+    "independent manifest re-verify pins ed25519 cert_fingerprint so overall can be true",
+    /expected-ed25519-fingerprint/.test(src) && /cert_fingerprint/.test(src),
+  )
   {
     const { reserveCustodyCase, LAB_REPORT_QA_SHA256 } = await import(
       "../packages/caseforge-cli/dist/src/commands/investigate.js"
