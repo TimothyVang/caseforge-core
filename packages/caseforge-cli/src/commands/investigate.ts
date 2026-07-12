@@ -7,7 +7,8 @@
  * route is refused outright — no evidence leaves the host.
  */
 import { spawn, spawnSync, execFileSync } from "node:child_process"
-import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs"
+import { createHash } from "node:crypto"
+import { createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -100,7 +101,36 @@ export function resolveEvidenceInput(evidencePath: string): ResolvedEvidenceInpu
   }
 }
 
-function evidenceToolHint(evidence: ResolvedEvidenceInput, findevilHome?: string): string {
+/**
+ * Hash-pin evidence for findevil-mcp case_open (FINDEVIL_CASE_OPEN_BINDING).
+ * Matches the launcher reservation contract used by scripts/find_evil_auto.py.
+ */
+export async function singleEvidenceRegistration(
+  imagePath: string,
+): Promise<{ bindingJson: string; expectedSha256: string; canonicalPath: string }> {
+  const canonicalPath = realpathSync(imagePath)
+  const st = statSync(canonicalPath)
+  if (!st.isFile()) throw new Error(`case_open binding requires a regular file: ${canonicalPath}`)
+  const fileHash = createHash("sha256")
+  await new Promise<void>((resolve, reject) => {
+    const stream = createReadStream(canonicalPath)
+    stream.on("data", (chunk: Buffer | string) => fileHash.update(chunk))
+    stream.on("error", reject)
+    stream.on("end", () => resolve())
+  })
+  const sha256 = fileHash.digest("hex")
+  const bindingJson = JSON.stringify({ artifacts: [{ path: canonicalPath, sha256 }] })
+  return { bindingJson, expectedSha256: sha256, canonicalPath }
+}
+
+function evidenceToolHint(
+  evidence: ResolvedEvidenceInput,
+  findevilHome?: string,
+  expectedSha256?: string,
+): string {
+  const shaArg = expectedSha256
+    ? ` and expected_sha256 exactly '${expectedSha256}' (launcher-reserved; required)`
+    : ""
   if (evidence.isDirectory) {
     const supported = supportedEvidenceNames(evidence.inventory).sort(
       (a, b) => caseOpenExtensionPriority(a) - caseOpenExtensionPriority(b) || a.localeCompare(b),
@@ -115,6 +145,7 @@ function evidenceToolHint(evidence: ResolvedEvidenceInput, findevilHome?: string
         : ` Never pass the directory path '${evidence.requestedPath}' to case_open — it must be a regular file.`
     return (
       `Evidence type hint: directory of artifacts. Call findevil-mcp_case_open with image_path exactly '${evidence.caseOpenPath}' first` +
+      shaArg +
       (supported.length ? ` (inventory basenames: ${supported.join(", ")})` : "") +
       `.` +
       openAll +
@@ -129,7 +160,7 @@ function evidenceToolHint(evidence: ResolvedEvidenceInput, findevilHome?: string
       : ""
     return (
       `Evidence type hint: single EVTX. Run this mandatory tool sequence without stopping for user input and without printing JSON examples: ` +
-      `(A) findevil-mcp_case_open with image_path exactly '${evidence.caseOpenPath}'; ` +
+      `(A) findevil-mcp_case_open with image_path exactly '${evidence.caseOpenPath}'${shaArg}; ` +
       `(B) findevil-mcp_evtx_query with case_id from case_open and evtx_path exactly '${evidence.caseOpenPath}' — Do NOT pass an eids filter on the first query (limit 500 survey). From the tool RESULT, list which Event IDs are present (read event_id fields; do not invent). If Event ID 1102 (audit-log cleared) is present, that is anti-forensics evidence: verdict must be SUSPICIOUS or INDETERMINATE, never NO_EVIL. Optional second query may filter eids only after the survey shows them; ` +
       `(C) findevil-agent-mcp_audit_append kind 'tool_call_output' for the EVTX query. payload.tool_name='evtx_query'; payload.arguments=the query args; payload.output_summary MUST be a JSON OBJECT (not a prose string) with records_seen, row_count, and rows: array of {event_id, record_id, channel, ts} copied from the tool result (include every 1102 row at minimum). Do not invent output_hash/output_sha256; ` +
       `(D) findevil-agent-mcp_audit_verify with path=audit_log_path; ` +
@@ -141,9 +172,11 @@ function evidenceToolHint(evidence: ResolvedEvidenceInput, findevilHome?: string
     )
   }
   if (lower.endsWith(".pcap") || lower.endsWith(".pcapng")) {
-    return `Evidence type hint: packet capture. After findevil-mcp_case_open, prefer findevil-mcp_pcap_triage / findevil-mcp_zeek_summary; do not use disk_mount.\n`
+    return `Evidence type hint: packet capture. After findevil-mcp_case_open with image_path exactly '${evidence.caseOpenPath}'${shaArg}, prefer findevil-mcp_pcap_triage / findevil-mcp_zeek_summary; do not use disk_mount.\n`
   }
-  return ""
+  return expectedSha256
+    ? `Call findevil-mcp_case_open with image_path exactly '${evidence.caseOpenPath}' and expected_sha256 exactly '${expectedSha256}'.\n`
+    : ""
 }
 
 /**
@@ -620,7 +653,8 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
     ),
   )
   let modelRef: string
-  if (routeLocation(route) === "local") {
+  const isCloudRoute = routeLocation(route) === "cloud"
+  if (!isCloudRoute) {
     modelRef = "verdict-local/local"
     // A remote self-hosted endpoint (e.g. Ollama on a DGX Spark over the LAN) is
     // still "local" for privacy — evidence stays on your own hardware. Let an
@@ -644,6 +678,25 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
     // cloud provider handled by opencode's built-in catalog + auth; the OAuth
     // key/credential containment already happened in oauthRuntimeEnv above.
     modelRef = `${route.provider}/${route.model}`
+    // Cloud agent path returns parsed tool rows to the model — require explicit
+    // parsed-evidence egress ack (operator already passed cloud-ack gate above).
+    env.FINDEVIL_ACKNOWLEDGE_PARSED_EVIDENCE_EGRESS =
+      process.env.FINDEVIL_ACKNOWLEDGE_PARSED_EVIDENCE_EGRESS ?? "1"
+  }
+
+  // Launcher-reserve the case_open source so findevil-mcp accepts the host path.
+  // Without FINDEVIL_CASE_OPEN_BINDING, case_open fails with unreserved source.
+  let expectedSha256: string | undefined
+  try {
+    const reg = await singleEvidenceRegistration(evidence.caseOpenPath)
+    env.FINDEVIL_CASE_OPEN_BINDING = reg.bindingJson
+    expectedSha256 = reg.expectedSha256
+    // Prefer canonical path for tool hints so MCP path checks match.
+    evidence = { ...evidence, caseOpenPath: reg.canonicalPath }
+    console.error(`[caseforge] reserved case_open binding sha256=${expectedSha256.slice(0, 12)}… path=${reg.canonicalPath}`)
+  } catch (e) {
+    console.error(`[caseforge] could not build case_open binding: ${(e as Error).message}`)
+    return 1
   }
 
   const command = opts.command ?? "triage"
@@ -652,7 +705,7 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
     evidence.isDirectory && evidence.inventory.length
       ? `Evidence directory inventory (exact filenames only, do not guess alternatives): ${evidence.inventory.join(", ")}.\n`
       : ""
-  const toolHint = evidenceToolHint(evidence, env.FINDEVIL_HOME)
+  const toolHint = evidenceToolHint(evidence, env.FINDEVIL_HOME, expectedSha256)
   // Drive the COMPLETE flow: the evidence-type playbook, then the /verdict
   // reason+seal phase. The run only counts as complete when the manifest is
   // finalized AND manifest_verify reports overall:true — otherwise the produced
@@ -662,13 +715,16 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
     `Do not exploit, evade, persist, or access any live third-party system; only use the read-only forensic MCP tools to inspect the supplied local evidence.\n` +
     `Complete a VERDICT investigation of the evidence input: ${evidence.requestedPath}.\n` +
     `Case-open evidence path: ${evidence.caseOpenPath}.\n` +
+    (expectedSha256 ? `Launcher-reserved expected_sha256 for case_open: ${expectedSha256}.\n` : "") +
     inventoryText +
     toolHint +
     `1. Perform the ${command} workflow directly with MCP tool calls: open the case, call the appropriate forensic MCP tools, and audit each important tool output with findevil-agent-mcp_audit_append.\n` +
     `2. Then perform the reason+seal phase directly with MCP tool calls. If you have verified cited findings, use verify_finding, judge_findings, and correlate_findings. If you do not have verified cited findings, skip finding_approved and seal the audited tool outputs only. Always run findevil-agent-mcp_audit_verify, then SEAL with findevil-agent-mcp_manifest_finalize (write run.manifest.json into the case directory), then call findevil-agent-mcp_manifest_verify. Do NOT pass signer:'stub' to manifest_finalize — omit signer (the default is the real offline-verifiable ed25519 local signature) or pass signer:'ed25519'; a stub placeholder never satisfies custody. Call findevil-agent-mcp_manifest_verify with the argument named manifest_path set to the run.manifest.json path.\n` +
     (memoryStorePath ? `3. Use MEMORY_STORE_PATH exactly as '${memoryStorePath}' for every memory_recall or memory_remember call; never use ~/.local/state/findevil/memory.sqlite in this run.\n` : "") +
     `Use only the VERDICT forensic MCP tools with their exact opencode names: findevil-mcp_<tool> and findevil-agent-mcp_<tool>. ` +
-    `Open the supplied evidence first with findevil-mcp_case_open using image_path exactly '${evidence.caseOpenPath}' (must be a regular file, never a directory); never call or invent findevil-agent-mcp_case_open, and never guess alternate image names such as evidence.dd or evidence.e01. ` +
+    `Open the supplied evidence first with findevil-mcp_case_open using image_path exactly '${evidence.caseOpenPath}'` +
+    (expectedSha256 ? ` and expected_sha256 exactly '${expectedSha256}'` : "") +
+    ` (must be a regular file, never a directory); never call or invent findevil-agent-mcp_case_open, and never guess alternate image names such as evidence.dd or evidence.e01. ` +
     `If case_open fails, fix the path and retry — do not stop with prose-only analysis. ` +
     `Every tool call name must start with findevil-mcp_ or findevil-agent-mcp_. There is no tool named run; do not call a run tool, task tool, skill tool, todowrite tool, or slash command. ` +
     `Use findevil-mcp_* for evidence/artifact tools and findevil-agent-mcp_* only for reasoning, judging, correlation, memory, and manifest sealing. Manifest tools are ONLY findevil-agent-mcp_manifest_finalize and findevil-agent-mcp_manifest_verify; never call findevil-mcp_manifest_finalize or findevil-mcp_manifest_verify. ` +
