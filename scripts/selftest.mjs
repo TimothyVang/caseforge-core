@@ -8,7 +8,7 @@
  *  - failed manifest verification => custody-invalid
  *  - citation custody: unknown tool_call_id / mismatched hash => not verified
  */
-import { chmodSync, mkdtempSync, readFileSync, realpathSync, writeFileSync, rmSync, statSync } from "node:fs"
+import { chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync, rmSync, statSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { fileURLToPath } from "node:url"
@@ -763,6 +763,49 @@ console.log("investigate cloud-ack + used_fallback wiring:")
     "investigate sets FINDEVIL_CONTROLLER_CAPABILITY for agent-mcp seal tools",
     /FINDEVIL_CONTROLLER_CAPABILITY/.test(src) && /randomBytes\(32\)/.test(src),
   )
+  ok(
+    "investigate reserves custody boundary like scripts/verdict",
+    /FINDEVIL_CUSTODY_BOUNDARY/.test(src) &&
+      /reserved_case/.test(src) &&
+      /FINDEVIL_ACTIVE_CASE_DIR/.test(src) &&
+      /FINDEVIL_ACTIVE_CASE_ID/.test(src) &&
+      /FINDEVIL_ACTIVE_RUN_ID/.test(src) &&
+      /FINDEVIL_ACTIVE_STARTED_AT/.test(src) &&
+      /FINDEVIL_ACTIVE_SIGNER/.test(src) &&
+      /\.verdict-case-marker/.test(src) &&
+      /reserveCustodyCase/.test(src),
+  )
+  ok(
+    "investigate pins reserved audit/manifest paths and report_qa for seal",
+    /report_qa_sha256/.test(src) && /LAB_REPORT_QA_SHA256/.test(src),
+  )
+  {
+    const { reserveCustodyCase, LAB_REPORT_QA_SHA256 } = await import(
+      "../packages/caseforge-cli/dist/src/commands/investigate.js"
+    )
+    const findevilHome = mkdtempSync(join(tmpdir(), "cf-custody-"))
+    try {
+      const env = { FINDEVIL_HOME: findevilHome, XDG_STATE_HOME: join(findevilHome, "state") }
+      const c = reserveCustodyCase(env)
+      const marker = join(c.caseDir, ".verdict-case-marker")
+      ok("reserveCustodyCase creates owner-private case dir + marker", existsSync(marker) && existsSync(c.caseDir))
+      ok(
+        "reserveCustodyCase sets all FINDEVIL custody env vars",
+        env.FINDEVIL_CUSTODY_BOUNDARY === "reserved_case" &&
+          env.FINDEVIL_ACTIVE_CASE_DIR === c.caseDir &&
+          env.FINDEVIL_ACTIVE_CASE_ID === c.caseId &&
+          env.FINDEVIL_ACTIVE_RUN_ID === c.runId &&
+          env.FINDEVIL_ACTIVE_STARTED_AT === c.startedAt &&
+          env.FINDEVIL_ACTIVE_SIGNER === "ed25519",
+      )
+      ok("reserveCustodyCase case_id is auto-* uuid style", /^auto-[0-9a-f-]{36}$/i.test(c.caseId))
+      ok("LAB_REPORT_QA_SHA256 is 64 hex", /^[0-9a-f]{64}$/.test(LAB_REPORT_QA_SHA256))
+      const st = statSync(c.caseDir)
+      ok("reserved case dir mode is owner-private (no group/other)", (st.mode & 0o077) === 0)
+    } finally {
+      rmSync(findevilHome, { recursive: true, force: true })
+    }
+  }
 }
 
 console.log("offline DFIR scorecard grader:")
