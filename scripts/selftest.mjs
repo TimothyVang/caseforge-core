@@ -23,6 +23,7 @@ import {
   REQUIRED_ARTIFACTS,
 } from "../packages/caseforge-sdk/dist/src/index.js"
 import { scoreRun, detectProvenance, loadGroundTruth } from "./score-offline-run.mjs"
+import { scoreImageRun, detectAiDegree, loadOracle } from "./score-image-run.mjs"
 
 let pass = 0,
   fail = 0
@@ -775,6 +776,47 @@ console.log("offline DFIR scorecard grader:")
   regressed.attack_coverage = { observed_techniques: [] }
   regressed.findings = []
   ok("scorecard: grader flags a detection regression (fewer HITs)", scoreRun(regressed, gt.cases["win-lateral-movement"]).total_hit < winLat.total_hit)
+}
+
+console.log("multi-axis image grader (Proof A):")
+{
+  const oracle = loadOracle(fileURLToPath(new URL("../fixtures/dfir-image-bench/proofA-winlat/ground-truth.json", import.meta.url)))
+  const winLat = JSON.parse(
+    readFileSync(fileURLToPath(new URL("../fixtures/dfir-scorecard/runs/win-lateral-movement.verdict.json", import.meta.url)), "utf8"),
+  )
+  const r = scoreImageRun(winLat, oracle)
+  // The captured win-lateral run elevates both techniques + the CVE and emits the planted IOCs,
+  // so every axis should score full — proving the grader binds correctly to real verdict fields.
+  ok("image: MITRE recall full (techniques + CVE)", r.axes.mitre.hit === r.axes.mitre.total && r.axes.mitre.total === 3)
+  ok("image: IOC recovery recall full over emitted categories", r.axes.ioc_recovery.recall === 1 && r.axes.ioc_recovery.hit === 3)
+  ok("image: chain coverage + ordering full", r.axes.chain_reconstruction.coverage === 1 && r.axes.chain_reconstruction.ordering === 1)
+  ok("image: verdict band matches (INDETERMINATE)", r.axes.verdict_band.match === true)
+  ok("image: AI-degree none on a non-AI run (matches oracle)", r.ai_degree.degree === "none" && r.ai_degree.match === true)
+  ok("image: provenance is deterministic-fallback (LLM did not author)", r.llm_provenance.kind === "deterministic-fallback")
+
+  // AI-degree detector fires on documented Tier-1 integration artifacts.
+  const aiRun = JSON.parse(
+    readFileSync(fileURLToPath(new URL("../fixtures/dfir-image-bench/ai-present.verdict.json", import.meta.url)), "utf8"),
+  )
+  const ai = detectAiDegree(aiRun)
+  ok("image: AI-degree = AI-present on seeded integration artifacts", ai.degree === "AI-present" && ai.indicators.includes("provider_key") && ai.indicators.includes("local_llm"))
+
+  // Regression guard: strip the elevated techniques + a planted IOC → MITRE and IOC scores drop.
+  const regressed = JSON.parse(JSON.stringify(winLat))
+  regressed.attack_coverage = { observed_techniques: [] }
+  regressed.findings = []
+  regressed.attack_story = { attack_chain: [] }
+  regressed.indicators = { ...regressed.indicators, services: [], processes: [], accounts: [] }
+  const rr = scoreImageRun(regressed, oracle)
+  ok("image: grader flags a detection regression (MITRE + IOC + chain drop)", rr.axes.mitre.hit < r.axes.mitre.hit && rr.axes.ioc_recovery.hit === 0 && rr.axes.chain_reconstruction.coverage === 0)
+
+  // Negative control: an empty verdict must score ~0 on every axis (proves the oracle isn't
+  // trivially satisfied), while a wrong-order chain must drop ordering below 1.
+  const empty = scoreImageRun({}, oracle)
+  ok("image: empty verdict scores zero across axes (negative control)", empty.axes.mitre.hit === 0 && empty.axes.ioc_recovery.hit === 0 && empty.axes.chain_reconstruction.coverage === 0)
+  const reordered = JSON.parse(JSON.stringify(winLat))
+  reordered.attack_story.attack_chain = [...reordered.attack_story.attack_chain].reverse().map((s, i) => ({ ...s, order: i + 1 }))
+  ok("image: reversed chain order drops the ordering score", scoreImageRun(reordered, oracle).axes.chain_reconstruction.ordering < 1)
 }
 
 console.log(`\n${pass} passed, ${fail} failed`)
