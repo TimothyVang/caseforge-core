@@ -759,6 +759,10 @@ console.log("investigate cloud-ack + used_fallback wiring:")
     "case_open tool hint includes expected_sha256 when reserved",
     /expected_sha256 exactly/.test(src),
   )
+  ok(
+    "investigate sets FINDEVIL_CONTROLLER_CAPABILITY for agent-mcp seal tools",
+    /FINDEVIL_CONTROLLER_CAPABILITY/.test(src) && /randomBytes\(32\)/.test(src),
+  )
 }
 
 console.log("offline DFIR scorecard grader:")
