@@ -22,6 +22,7 @@ import {
   checkFindingsCustody,
   REQUIRED_ARTIFACTS,
 } from "../packages/caseforge-sdk/dist/src/index.js"
+import { scoreRun, detectProvenance, loadGroundTruth } from "./score-offline-run.mjs"
 
 let pass = 0,
   fail = 0
@@ -745,6 +746,35 @@ console.log("investigate cloud-ack + used_fallback wiring:")
     "investigate records used_fallback from the runtime run result (not a constant)",
     /readRuntimeRunResult/.test(src) && /(assembleRunRecord|writeCaseforgeRun)/.test(src),
   )
+}
+
+console.log("offline DFIR scorecard grader:")
+{
+  const gt = loadGroundTruth()
+  const runFixture = (name) =>
+    JSON.parse(readFileSync(fileURLToPath(new URL(`../fixtures/dfir-scorecard/runs/${name}.verdict.json`, import.meta.url)), "utf8"))
+
+  // All three offline cases were run with the gpt-oss:20b agent forced
+  // (CASEFORGE_FORCE_AGENT=1). Every one fell back to the deterministic find_evil_auto
+  // engine after the model failed to seal, so the grader must report the detection floor as
+  // complete AND flag that the LLM authored none of these seals.
+  for (const name of ["win-lateral-movement", "attack-samples", "bench-evtx-2026-07-03"]) {
+    const r = scoreRun(runFixture(name), gt.cases[name])
+    ok(`scorecard: ${name} elevates every expected target (${r.total_hit}/${r.total_expected})`, r.total_expected > 0 && r.total_hit === r.total_expected)
+    ok(`scorecard: ${name} seal is deterministic-fallback (LLM did not author it)`, r.llm_provenance.kind === "deterministic-fallback" && r.llm_provenance.llm === false)
+  }
+
+  const winLat = scoreRun(runFixture("win-lateral-movement"), gt.cases["win-lateral-movement"])
+  const statusOf = (t) => winLat.techniques.find((x) => x.technique === t)?.status
+  ok("scorecard: win-lateral elevates T1047 + T1543.003 (HIT)", statusOf("T1047") === "HIT" && statusOf("T1543.003") === "HIT")
+  ok("scorecard: win-lateral cites CVE-2022-21999 (HIT)", winLat.cves.some((c) => c.cve === "CVE-2022-21999" && c.status === "HIT"))
+  ok("scorecard: win-lateral verdict in expected band", winLat.verdict === gt.cases["win-lateral-movement"].expected_verdict_band)
+  ok("scorecard: grader recognizes an LLM-authored run when present", detectProvenance({ agent: "verdict (gpt-oss:20b)", tool_calls: [1, 2] }).llm === true)
+  // Regression guard: if the elevated techniques disappear, the score must drop.
+  const regressed = runFixture("win-lateral-movement")
+  regressed.attack_coverage = { observed_techniques: [] }
+  regressed.findings = []
+  ok("scorecard: grader flags a detection regression (fewer HITs)", scoreRun(regressed, gt.cases["win-lateral-movement"]).total_hit < winLat.total_hit)
 }
 
 console.log(`\n${pass} passed, ${fail} failed`)
