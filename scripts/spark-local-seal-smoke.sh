@@ -2,10 +2,21 @@
 # Spark local-seal smoke — time-bounded investigate via spark-ollama + DE_1102.
 #
 # Honest outcomes (exactly one final line of this form):
-#   PASS: sealed with ed25519
+#   PASS: sealed with ed25519 (agent path; used_fallback=0)
 #   PASS: investigate completed via fallback (not agent seal)
 #   SKIP: spark down
 #   FAIL: <reason with evidence>
+#
+# Env:
+#   CASEFORGE_SPARK_SMOKE_REQUIRE_AGENT=1 — FAIL if deterministic EVTX fallback ran
+#     (used_fallback=1). Default 0 keeps m13 PASS-with-fallback behavior.
+#   VERDICT_BIN / OPENCODE_BIN — preferred external runtime. When unset, prefer
+#     engine/packages/opencode/dist/*/bin/opencode over PATH so a stale
+#     ~/.local/bin/verdict with a slash-containing version cannot hang npm
+#     (git ls-remote on 0.0.0-agent/…).
+#   VERDICT_LLM_MODEL — optional model override (e.g. llama3.1:8b when gpt-oss hangs).
+#   OPENCODE_TOOL_CHOICE / VERDICT_FORCE_TOOL_CHOICE — default required for agent tool calls
+#     (set OPENCODE_TOOL_CHOICE=auto or VERDICT_FORCE_TOOL_CHOICE=0 to disable).
 #
 # Never fabricates seal success. If Spark Ollama is unreachable, exits 0 with SKIP.
 set -euo pipefail
@@ -54,6 +65,71 @@ resolve_dfir_home() {
   return 1
 }
 
+# Prefer a non-slash versioned runtime. PATH ~/.local/bin/verdict may be a
+# preview build stamped from branch names containing '/' (e.g. agent/m4-…),
+# which hangs the harness on git ls-remote during plugin pin install.
+# Dist is often only built in the primary worktree (gitignored), so also scan
+# other worktrees of this repo. Reject candidates whose --version contains '/'.
+runtime_version_ok() {
+  local bin="$1" ver
+  [ -x "${bin}" ] || return 1
+  ver="$("${bin}" --version 2>/dev/null | head -1 || true)"
+  # Empty version: still allow (some stubs); only reject slash-stamped previews.
+  if [[ "${ver}" == *"/"* ]]; then
+    return 1
+  fi
+  return 0
+}
+
+dist_candidates_under() {
+  local base="$1"
+  printf '%s\n' \
+    "${base}/engine/packages/opencode/dist/opencode-linux-x64/bin/opencode" \
+    "${base}/engine/packages/opencode/dist/opencode-linux-arm64/bin/opencode" \
+    "${base}/engine/packages/opencode/dist/opencode-darwin-arm64/bin/opencode" \
+    "${base}/engine/packages/opencode/dist/opencode-darwin-x64/bin/opencode"
+}
+
+resolve_verdict_runtime() {
+  local candidate wt
+  for candidate in "${VERDICT_BIN:-}" "${OPENCODE_BIN:-}"; do
+    [ -n "${candidate}" ] || continue
+    if runtime_version_ok "${candidate}"; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+  done
+  while IFS= read -r candidate; do
+    [ -n "${candidate}" ] || continue
+    if runtime_version_ok "${candidate}"; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+  done < <(dist_candidates_under "${ROOT}")
+  if command -v git >/dev/null 2>&1; then
+    while IFS= read -r wt; do
+      [ -n "${wt}" ] || continue
+      [ "${wt}" = "${ROOT}" ] && continue
+      while IFS= read -r candidate; do
+        [ -n "${candidate}" ] || continue
+        if runtime_version_ok "${candidate}"; then
+          printf '%s\n' "${candidate}"
+          return 0
+        fi
+      done < <(dist_candidates_under "${wt}")
+    done < <(git -C "${ROOT}" worktree list --porcelain 2>/dev/null | awk '/^worktree / { print substr($0, 10) }')
+  fi
+  # Last resort: PATH, but only slash-free versions.
+  while IFS= read -r candidate; do
+    [ -n "${candidate}" ] || continue
+    if runtime_version_ok "${candidate}"; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+  done < <( { type -P -a verdict 2>/dev/null || true; type -P -a opencode 2>/dev/null || true; } )
+  return 1
+}
+
 # Route endpoint: env override wins; else spark-ollama.base_url from model-routes.yaml.
 route_id="${CASEFORGE_SPARK_ROUTE:-spark-ollama}"
 routes_file="${ROOT}/configs/model-routes.yaml"
@@ -81,6 +157,13 @@ if [ -z "${endpoint}" ] || [[ "${endpoint}" == *"SPARK-HOST"* ]] || [[ "${endpoi
   exit 0
 fi
 
+# Bare host roots (http://host:11434) make openai-compat call /chat/completions
+# and Ollama returns "404 page not found". OpenAI surface is under /v1.
+endpoint="${endpoint%/}"
+if [[ "${endpoint}" =~ ^https?://[^/]+$ ]]; then
+  endpoint="${endpoint}/v1"
+fi
+
 # Normalize to Ollama tags URL for the liveness probe.
 probe_url="${endpoint%/}"
 probe_url="${probe_url%/v1}"
@@ -97,6 +180,43 @@ if [ "${probe_rc}" -ne 0 ] || ! grep -Eq '"models"|models' <<<"${probe_out}"; th
 fi
 say "Spark Ollama up (${probe_url})"
 
+# When agent seal is required, refuse models Ollama reports as non-tool-capable.
+# (e.g. qwen3.6:35b-a3b → "does not support tools"; agent path cannot seal.)
+if [ "${CASEFORGE_SPARK_SMOKE_REQUIRE_AGENT:-0}" = "1" ]; then
+  model_name="${VERDICT_LLM_MODEL:-}"
+  if [ -z "${model_name}" ] && [ -f "${routes_file}" ]; then
+    model_name="$(
+      awk -v id="${route_id}:" '
+        $0 ~ "^[[:space:]]*" id { in_route=1; next }
+        in_route && /^[[:space:]]+[a-zA-Z0-9_-]+:/ && $0 !~ /^[[:space:]]+model:/ { if ($0 ~ /^[[:space:]]{2}[a-zA-Z]/ && $0 !~ /^[[:space:]]{4}/) exit }
+        in_route && /model:/ {
+          sub(/^[^:]+:[[:space:]]*/, "")
+          sub(/[[:space:]]+#.*$/, "")
+          gsub(/[[:space:]]/, "")
+          print
+          exit
+        }
+      ' "${routes_file}"
+    )"
+  fi
+  if [ -n "${model_name}" ]; then
+    show_url="${probe_url%/api/tags}/api/show"
+    set +e
+    show_out="$(curl -sS -m 5 -H "Content-Type: application/json" -d "{\"name\":\"${model_name}\"}" "${show_url}" 2>&1)"
+    show_rc=$?
+    set -e
+    if [ "${show_rc}" -eq 0 ] && printf '%s' "${show_out}" | grep -q '"capabilities"'; then
+      if ! printf '%s' "${show_out}" | grep -Fq '"tools"'; then
+        fail "REQUIRE_AGENT=1 but Ollama model ${model_name} has no tools capability (cannot agent-seal). show=${show_url}"
+      fi
+      say "model ${model_name} tools capability: ok"
+    else
+      say "WARN: could not probe Ollama tools capability for ${model_name} (continuing)"
+    fi
+  fi
+fi
+
+
 CLI="${ROOT}/packages/caseforge-cli/dist/src/cli.js"
 if [ ! -f "${CLI}" ]; then
   say "building CLI (dist missing)"
@@ -106,6 +226,21 @@ fi
 
 DFIR_HOME="$(resolve_dfir_home)" || fail "set VERDICT_DFIR_HOME to a toolkit checkout with scripts/run-mcp-rust.sh"
 [ -f "${DFIR_HOME}/scripts/run-mcp-rust.sh" ] || fail "VERDICT toolkit launcher missing: ${DFIR_HOME}/scripts/run-mcp-rust.sh"
+
+if runtime_bin="$(resolve_verdict_runtime)"; then
+  export VERDICT_BIN="${runtime_bin}"
+  export OPENCODE_BIN="${OPENCODE_BIN:-${runtime_bin}}"
+  say "VERDICT_BIN=${VERDICT_BIN}"
+  runtime_ver="$("${VERDICT_BIN}" --version 2>/dev/null | head -1 || true)"
+  if [ -n "${runtime_ver}" ]; then
+    say "runtime version: ${runtime_ver}"
+    if [[ "${runtime_ver}" == *"/"* ]]; then
+      say "WARN: runtime version contains '/' (npm may treat it as github owner/repo and hang on git ls-remote); prefer engine dist or rebuild with sanitized channel"
+    fi
+  fi
+else
+  say "WARN: no engine dist runtime found; doctor/investigate will use PATH verdict (slash-version hang risk)"
+fi
 
 FIND_EVIL_HOME="${FINDEVIL_HOME:-${DFIR_HOME}/.project-local/findevil}"
 CASES_DIR="${FIND_EVIL_HOME}/cases"
@@ -131,6 +266,11 @@ set +e
 doctor_out="$(
   VERDICT_DFIR_HOME="${DFIR_HOME}" \
   VERDICT_LLM_BASEURL="${endpoint}" \
+  VERDICT_BIN="${VERDICT_BIN:-}" \
+  OPENCODE_BIN="${OPENCODE_BIN:-}" \
+  VERDICT_LLM_MODEL="${VERDICT_LLM_MODEL:-}" \
+  OPENCODE_TOOL_CHOICE="${OPENCODE_TOOL_CHOICE:-required}" \
+  VERDICT_FORCE_TOOL_CHOICE="${VERDICT_FORCE_TOOL_CHOICE:-1}" \
   node "${CLI}" doctor --route "${route_id}" 2>&1
 )"
 doctor_rc=$?
@@ -173,6 +313,11 @@ if command -v timeout >/dev/null 2>&1; then
   VERDICT_DFIR_HOME="${DFIR_HOME}" \
   FINDEVIL_HOME="${FIND_EVIL_HOME}" \
   VERDICT_LLM_BASEURL="${endpoint}" \
+  VERDICT_BIN="${VERDICT_BIN:-}" \
+  OPENCODE_BIN="${OPENCODE_BIN:-}" \
+  VERDICT_LLM_MODEL="${VERDICT_LLM_MODEL:-}" \
+  OPENCODE_TOOL_CHOICE="${OPENCODE_TOOL_CHOICE:-required}" \
+  VERDICT_FORCE_TOOL_CHOICE="${VERDICT_FORCE_TOOL_CHOICE:-1}" \
   timeout "${timeout_s}" \
     node "${CLI}" investigate "${EVIDENCE}" \
       --privacy local-only \
@@ -184,6 +329,11 @@ else
   VERDICT_DFIR_HOME="${DFIR_HOME}" \
   FINDEVIL_HOME="${FIND_EVIL_HOME}" \
   VERDICT_LLM_BASEURL="${endpoint}" \
+  VERDICT_BIN="${VERDICT_BIN:-}" \
+  OPENCODE_BIN="${OPENCODE_BIN:-}" \
+  VERDICT_LLM_MODEL="${VERDICT_LLM_MODEL:-}" \
+  OPENCODE_TOOL_CHOICE="${OPENCODE_TOOL_CHOICE:-required}" \
+  VERDICT_FORCE_TOOL_CHOICE="${VERDICT_FORCE_TOOL_CHOICE:-1}" \
     node "${CLI}" investigate "${EVIDENCE}" \
       --privacy local-only \
       --evidence sensitive \
@@ -203,6 +353,11 @@ if grep -Eq 'deterministic local EVTX auto-runner fallback|verifying determinist
   used_fallback=1
 fi
 
+# Optional strict agent-seal gate (Milestone 14):
+# CASEFORGE_SPARK_SMOKE_REQUIRE_AGENT=1 fails if the deterministic EVTX fallback ran.
+# Default remains the honest PASS-with-fallback path (m13).
+require_agent="${CASEFORGE_SPARK_SMOKE_REQUIRE_AGENT:-0}"
+
 # Prefer case dir mentioned in the log; else newest case under CASES_DIR after marker.
 run_dir=""
 if grep -Eo 'verifying (produced|deterministic EVTX fallback) run: [^[:space:]]+' "${log}" >/dev/null 2>&1; then
@@ -220,11 +375,17 @@ if [ -z "${run_dir}" ] || [ ! -d "${run_dir}" ]; then
 fi
 
 # Timeout exit codes: GNU timeout → 124; some wrappers → 137
+# After the m15 /v1 bare-root fix, agent can still hang on long Spark tool runs
+# (case dir may exist with only case.json). Fail with hang messaging here instead
+# of falling through to a misleading "missing run.manifest.json" FAIL.
 if [ "${inv_rc}" -eq 124 ] || [ "${inv_rc}" -eq 137 ]; then
-  if [ -n "${run_dir}" ] && [ -d "${run_dir}" ]; then
-    say "investigate timed out (rc=${inv_rc}) but a case dir exists: ${run_dir}"
+  hang_hint="agent path likely hung after LLM /v1 (not bare-baseURL 404); raise CASEFORGE_SPARK_SMOKE_TIMEOUT or inspect log"
+  if [ -n "${run_dir}" ] && [ -d "${run_dir}" ] && [ -f "${run_dir}/run.manifest.json" ]; then
+    say "investigate timed out (rc=${inv_rc}) but case has run.manifest.json: ${run_dir}"
+  elif [ -n "${run_dir}" ] && [ -d "${run_dir}" ]; then
+    fail "investigate timed out after ${timeout_s}s (rc=${inv_rc}); case incomplete (no run.manifest.json). ${hang_hint}. run_dir=${run_dir} log=${log}"
   else
-    fail "investigate timed out after ${timeout_s}s (rc=${inv_rc}); no case/run dir produced. log=${log}"
+    fail "investigate timed out after ${timeout_s}s (rc=${inv_rc}); no case/run dir produced. ${hang_hint}. log=${log}"
   fi
 fi
 
@@ -290,9 +451,12 @@ fi
 
 if [ "${used_fallback}" -eq 1 ]; then
   # Fallback path can still produce an ed25519-sealed case; do not claim agent seal.
+  if [ "${require_agent}" = "1" ]; then
+    fail "agent seal not achieved: used_fallback=1 (CASEFORGE_SPARK_SMOKE_REQUIRE_AGENT=1). signature_kind=${sig_kind:-n/a} overall=${overall:-n/a} run_dir=${run_dir}"
+  fi
   if [ "${is_ed25519}" -eq 1 ] && { [ "${overall_true}" -eq 1 ] || [ "${inv_rc}" -eq 0 ]; }; then
     echo "PASS: investigate completed via fallback (not agent seal)"
-    echo "  quoted: signature_kind=${sig_kind:-n/a} overall=${overall:-n/a} run_dir=${run_dir}"
+    echo "  quoted: signature_kind=${sig_kind:-n/a} overall=${overall:-n/a} used_fallback=1 run_dir=${run_dir}"
     exit 0
   fi
   echo "PASS: investigate completed via fallback (not agent seal)"
@@ -301,8 +465,8 @@ if [ "${used_fallback}" -eq 1 ]; then
 fi
 
 if [ "${is_ed25519}" -eq 1 ] && [ "${overall_true}" -eq 1 ]; then
-  echo "PASS: sealed with ed25519"
-  echo "  quoted: signature_kind=${sig_kind} signer_effective=${signer_effective:-${sig_kind}} overall=true signature_verified=${signature_verified:-n/a} run_dir=${run_dir}"
+  echo "PASS: sealed with ed25519 (agent path; used_fallback=0)"
+  echo "  quoted: signature_kind=${sig_kind} signer_effective=${signer_effective:-${sig_kind}} overall=true signature_verified=${signature_verified:-n/a} used_fallback=0 run_dir=${run_dir}"
   exit 0
 fi
 

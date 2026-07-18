@@ -1,6 +1,7 @@
 ---
 description: Primary DFIR orchestrator — scopes the case, runs the evidence-type workflow, and seals custody
 mode: primary
+steps: 48
 permission:
   edit: deny
   write: deny

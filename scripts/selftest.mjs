@@ -87,7 +87,14 @@ exit 64
     rmSync(runtimeDir, { recursive: true, force: true })
   }
   ok("selected local doctor honors endpoint override", selectedLocalEndpoint(routes["spark-ollama"], { VERDICT_LLM_BASEURL: "http://spark.local:11434/v1" }) === "http://spark.local:11434/v1")
+  ok(
+    "selected local doctor normalizes bare Ollama root to /v1 (m13 404 root cause)",
+    selectedLocalEndpoint(routes["spark-ollama"], { VERDICT_LLM_BASEURL: "http://spark.local:11434" }) === "http://spark.local:11434/v1",
+  )
   ok("selected local doctor falls back to route endpoint", selectedLocalEndpoint(routes["spark-ollama"], {}) === routes["spark-ollama"].base_url)
+  const { normalizeOpenAiCompatBaseUrl } = await import("../packages/caseforge-cli/dist/src/config.js")
+  ok("normalize leaves existing /v1 alone", normalizeOpenAiCompatBaseUrl("http://host:11434/v1/") === "http://host:11434/v1")
+  ok("normalize leaves non-root paths alone", normalizeOpenAiCompatBaseUrl("https://api.z.ai/api/paas/v4") === "https://api.z.ai/api/paas/v4")
   const modelRoutesText = readFileSync(fileURLToPath(new URL("../configs/model-routes.yaml", import.meta.url)), "utf8")
   const staleEmbeddedRuntimePhrase = ["embedded", "opencode", "engine"].join(" ")
   ok("ChatGPT OAuth route is documented as external runtime", /external VERDICT runtime/.test(modelRoutesText) && !modelRoutesText.includes(staleEmbeddedRuntimePhrase))
@@ -115,6 +122,25 @@ exit 64
       /PASS: investigate completed via fallback \(not agent seal\)/.test(sparkSealSmoke) &&
       /exit 0/.test(sparkSealSmoke),
   )
+  ok(
+    "spark-local-seal-smoke timeout names agent hang after /v1 (not bare-baseURL 404)",
+    /agent path likely hung after LLM \/v1/.test(sparkSealSmoke) &&
+      /case incomplete \(no run\.manifest\.json\)/.test(sparkSealSmoke) &&
+      /not bare-baseURL 404/.test(sparkSealSmoke),
+  )
+  ok(
+    "spark-local-seal-smoke prefers VERDICT_BIN/engine dist over PATH slash-version hang",
+    /resolve_verdict_runtime/.test(sparkSealSmoke) &&
+      /VERDICT_BIN=/.test(sparkSealSmoke) &&
+      /engine\/packages\/opencode\/dist/.test(sparkSealSmoke) &&
+      /git ls-remote/.test(sparkSealSmoke),
+  )
+  ok(
+    "spark-local-seal-smoke REQUIRE_AGENT probes Ollama tools capability",
+    /REQUIRE_AGENT=1 but Ollama model/.test(sparkSealSmoke) &&
+      /tools capability/.test(sparkSealSmoke) &&
+      /api\/show/.test(sparkSealSmoke),
+  )
   const setup = readFileSync(fileURLToPath(new URL("../scripts/setup.sh", import.meta.url)), "utf8")
   ok(
     "setup installs verdict runtime without following existing symlinks",
@@ -133,18 +159,44 @@ exit 64
   ok("investigate contains opencode global state", /OPENCODE_TEST_HOME/.test(investigateSrc) && /XDG_CONFIG_HOME/.test(investigateSrc) && /OPENCODE_DISABLE_EXTERNAL_SKILLS/.test(investigateSrc))
   ok("investigate prompt routes case_open to Rust MCP", /findevil-mcp_case_open/.test(investigateSrc) && /never call or invent findevil-agent-mcp_case_open/.test(investigateSrc))
   ok("investigate prompt routes single EVTX to evtx_query", /single EVTX/.test(investigateSrc) && /findevil-mcp_evtx_query/.test(investigateSrc) && /Do not call disk_mount/.test(investigateSrc))
+  ok(
+    "investigate single EVTX mandates seal sequence without printed JSON substitutes",
+    /mandatory tool sequence/.test(investigateSrc) &&
+      /findevil-agent-mcp_manifest_finalize/.test(investigateSrc) &&
+      /Never print a fenced code block/.test(investigateSrc) &&
+      /do not print JSON examples instead of making real tool calls/.test(investigateSrc),
+  )
+  ok(
+    "investigate single EVTX requires structured audit rows and seal-continue",
+    /output_summary MUST be a JSON OBJECT/.test(investigateSrc) &&
+      /seal-continue attempt/.test(investigateSrc) &&
+      /Event ID 1102/.test(investigateSrc) &&
+      /never NO_EVIL/.test(investigateSrc),
+  )
+  ok("verdict agent has elevated steps budget for seal recovery", /steps:\s*48/.test(readFileSync(fileURLToPath(new URL("../configs/opencode/agent/verdict.md", import.meta.url)), "utf8")))
   ok("investigate prompt avoids helper tool confusion", /Every tool call name must start with findevil-mcp_/.test(investigateSrc) && /do not call a run tool, task tool, skill tool, todowrite tool/.test(investigateSrc))
   ok("investigate pins manifest tools to agent MCP", /Manifest tools are ONLY findevil-agent-mcp_manifest_finalize/.test(investigateSrc) && /never call findevil-mcp_manifest_finalize/.test(investigateSrc))
   ok("investigate requires verified manifest before complete", /manifest_verify reports overall:true/.test(investigateSrc) && /real run\.manifest\.json plus audit\.jsonl/.test(investigateSrc))
   ok("investigate EVTX hint surveys before filtering (no hardcoded eids)", /Do NOT pass an eids filter on the first query/.test(investigateSrc) && !/eids \[1102\], and limit 100/.test(investigateSrc))
   ok("investigate forbids stub signer and prefers ed25519 at seal", /Do NOT pass signer:'stub'/.test(investigateSrc) && /signer:'ed25519'/.test(investigateSrc))
   ok("investigate names manifest_path arg at verify", /argument named manifest_path/.test(investigateSrc))
+  ok(
+    "investigate local route forces OPENCODE_TOOL_CHOICE required by default",
+    /OPENCODE_TOOL_CHOICE/.test(investigateSrc) &&
+      /required/.test(investigateSrc) &&
+      /VERDICT_FORCE_TOOL_CHOICE/.test(investigateSrc),
+  )
   const evidenceDir = mkdtempSync(join(tmpdir(), "caseforge-evidence-"))
   try {
     writeFileSync(join(evidenceDir, "manifest.json"), "{}")
     writeFileSync(join(evidenceDir, "image.E01"), "tiny")
     const resolved = resolveEvidenceInput(evidenceDir)
-    ok("directory evidence stays directory-scoped for case_open", resolved.caseOpenPath === evidenceDir && resolved.inventory.includes("image.E01"))
+    ok(
+      "directory evidence case_open targets primary regular file (not the directory)",
+      resolved.isDirectory === true &&
+        resolved.caseOpenPath === join(evidenceDir, "image.E01") &&
+        resolved.inventory.includes("image.E01"),
+    )
   } finally {
     rmSync(evidenceDir, { recursive: true, force: true })
   }
@@ -168,9 +220,9 @@ exit 64
     writeFileSync(join(multiEvtxDir, "README.md"), "notes")
     const resolved = resolveEvidenceInput(multiEvtxDir)
     ok(
-      "multi-EVTX directory stays directory-scoped for case_open",
+      "multi-EVTX directory case_open targets a regular EVTX file (MCP requires a file)",
       resolved.isDirectory === true &&
-        resolved.caseOpenPath === multiEvtxDir &&
+        resolved.caseOpenPath === join(multiEvtxDir, "LM_Remote_Service02_7045.evtx") &&
         resolved.inventory.includes("LM_WMI_4624_4688_TargetHost.evtx"),
     )
     ok(

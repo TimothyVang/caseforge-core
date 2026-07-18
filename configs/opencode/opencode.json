@@ -20,6 +20,7 @@
         "local": {
           "name": "Local model ({env:VERDICT_LLM_MODEL})",
           "id": "{env:VERDICT_LLM_MODEL}",
+          "tool_call": true,
           "cost": { "input": 0, "output": 0 },
           "limit": { "context": 131072, "output": 8192 }
         }

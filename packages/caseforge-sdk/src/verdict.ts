@@ -112,6 +112,40 @@ function acceptedCitation(f: VerdictFinding): boolean {
   return citationKind(f) !== "none"
 }
 
+function pushEvtx1102Finding(
+  findings: VerdictFinding[],
+  entry: AuditLogEntry,
+  args: Record<string, unknown>,
+  toolName: string,
+  rawRow: Record<string, unknown>,
+  rowIndex: number,
+): void {
+  const eventId = Number(rawRow.event_id)
+  if (eventId !== 1102) return
+  const recordId = rawRow.record_id
+  const ts = typeof rawRow.ts === "string" ? rawRow.ts : undefined
+  const channel = typeof rawRow.channel === "string" ? rawRow.channel : "Security"
+  const seq = entry.seq ?? entry.line_index
+  const recordSuffix = typeof recordId === "string" || typeof recordId === "number" ? String(recordId) : String(rowIndex + 1)
+  const when = ts ? ` at ${ts}` : ""
+  findings.push({
+    finding_id: `evtx-1102-${seq}-${recordSuffix}`,
+    verdict: "SUSPICIOUS",
+    confidence: "INFERRED",
+    description: `${channel} audit log cleared (Event ID 1102)${when}; record_id=${recordSuffix}.`,
+    citation_kind: "audit_record",
+    audit_seq: seq,
+    audit_record_sha256: entry.line_sha256,
+    tool_name: toolName,
+    case_id: typeof args.case_id === "string" ? args.case_id : undefined,
+    evidence_path: typeof args.evtx_path === "string" ? args.evtx_path : undefined,
+    event_id: eventId,
+    channel,
+    record_id: recordId,
+    ts,
+  })
+}
+
 function deriveEvtxFindings(entries: AuditLogEntry[]): VerdictFinding[] {
   const findings: VerdictFinding[] = []
   for (const entry of entries) {
@@ -120,35 +154,17 @@ function deriveEvtxFindings(entries: AuditLogEntry[]): VerdictFinding[] {
     if (!toolName.includes("evtx_query")) continue
 
     const args = isRecord(payload?.arguments) ? payload.arguments : {}
-    const outputSummary = isRecord(payload?.output_summary) ? payload.output_summary : undefined
-    const rows = Array.isArray(outputSummary?.rows) ? outputSummary.rows : []
+    // Prefer structured output_summary.rows; also accept payload.output.rows.
+    const summaryObj = isRecord(payload?.output_summary) ? payload.output_summary : undefined
+    const outputObj = isRecord(payload?.output) ? payload.output : undefined
+    const rows = Array.isArray(summaryObj?.rows)
+      ? summaryObj.rows
+      : Array.isArray(outputObj?.rows)
+        ? outputObj.rows
+        : []
     rows.forEach((rawRow, rowIndex) => {
       if (!isRecord(rawRow)) return
-      const eventId = Number(rawRow.event_id)
-      if (eventId !== 1102) return
-
-      const recordId = rawRow.record_id
-      const ts = typeof rawRow.ts === "string" ? rawRow.ts : undefined
-      const channel = typeof rawRow.channel === "string" ? rawRow.channel : "Security"
-      const seq = entry.seq ?? entry.line_index
-      const recordSuffix = typeof recordId === "string" || typeof recordId === "number" ? String(recordId) : String(rowIndex + 1)
-      const when = ts ? ` at ${ts}` : ""
-      findings.push({
-        finding_id: `evtx-1102-${seq}-${recordSuffix}`,
-        verdict: "SUSPICIOUS",
-        confidence: "INFERRED",
-        description: `${channel} audit log cleared (Event ID 1102)${when}; record_id=${recordSuffix}.`,
-        citation_kind: "audit_record",
-        audit_seq: seq,
-        audit_record_sha256: entry.line_sha256,
-        tool_name: toolName,
-        case_id: typeof args.case_id === "string" ? args.case_id : undefined,
-        evidence_path: typeof args.evtx_path === "string" ? args.evtx_path : undefined,
-        event_id: eventId,
-        channel,
-        record_id: recordId,
-        ts,
-      })
+      pushEvtx1102Finding(findings, entry, args, toolName, rawRow, rowIndex)
     })
   }
   return findings
