@@ -1,6 +1,7 @@
 # Tracking: local-LLM seal failure — the fix, per repo
 
-Status: **implemented in open PRs; live Spark re-verify is the remaining done-gate.**
+Status: **code fixes merged (dev #173, caseforge #9); live Spark agent re-verify is
+the remaining done-gate and is still UNVERIFIED.**
 Diagnosis: [`LOCAL_LLM_SEAL_FAILURE.md`](./LOCAL_LLM_SEAL_FAILURE.md).
 
 ## The fix (4 parts)
@@ -14,8 +15,8 @@ Diagnosis: [`LOCAL_LLM_SEAL_FAILURE.md`](./LOCAL_LLM_SEAL_FAILURE.md).
 
 ## PR routing (and two caveats)
 
-- **dev PR** (`dev-verdict-github`, base `develop`): fix **2** — #173.
-- **caseforge PR** (`caseforge-core`): fixes **3** and **4** — #9.
+- **dev PR** (`dev-verdict-github`, base `develop`): fix **2** — #173, **merged**.
+- **caseforge PR** (`caseforge-core`): fixes **3** and **4** — #9, **merged**.
 - **beta** (`verdict-dfir-beta`): **not a hand-authored PR.** Per the umbrella CLAUDE.md,
   beta only receives exported snapshots via `dev/scripts/ship-beta.sh` (secret-audited,
   dry-run by default). The correct "beta" step is: **after the dev PR merges, run

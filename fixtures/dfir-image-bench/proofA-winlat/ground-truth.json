@@ -1,0 +1,52 @@
+{
+  "schema": "dfir-image-oracle/v1",
+  "case": "proofA-winlat",
+  "source": "Hand-authored over the captured win-lateral-movement offline run (Proof A, no lab). Techniques verified against MITRE ATT&CK G1017 + T1543.003 / T1047 (2026-07-10).",
+  "notes": [
+    "Proof A oracle: proves the multi-axis image grader against a REAL sealed run's actual",
+    "verdict.json fields, with no lab/toolchain/image. Technique codes are stored as alias",
+    "sets so ATT&CK renumbering (e.g. T1070.001 vs T1685.005) cannot silently rot the oracle.",
+    "hash and registry_value IOC types are unscored: the producer verdict.json has no such",
+    "channel yet (indicators lacks a registry key category and hashes is empty in practice)."
+  ],
+  "expected_verdict_band": "INDETERMINATE",
+  "expected_ai_degree": "none",
+  "unscored_ioc_types": ["hash", "registry_value"],
+  "attack_chain": [
+    {
+      "chain_order": 1,
+      "phase": "Persistence",
+      "technique": { "attack_id": "T1543.003", "aliases": ["T1543.003"], "name": "Create or Modify System Process: Windows Service (SpoolFool)" },
+      "cves": ["CVE-2022-21999"],
+      "artifacts": [
+        {
+          "artifact_id": "svc-spoolfool",
+          "difficulty": "Medium",
+          "ioc": { "type": "service", "value": "spoolfool" },
+          "evidence_locations": ["system:7045", "registry:services"],
+          "anti_forensic": { "applied": false }
+        }
+      ]
+    },
+    {
+      "chain_order": 2,
+      "phase": "Lateral Movement",
+      "technique": { "attack_id": "T1047", "aliases": ["T1047"], "name": "Windows Management Instrumentation" },
+      "cves": [],
+      "artifacts": [
+        {
+          "artifact_id": "proc-wmiprvse",
+          "difficulty": "Medium",
+          "ioc": { "type": "process", "value": "C:\\Windows\\System32\\wbem\\WmiPrvSE.exe" },
+          "evidence_locations": ["security:4688", "sysmon:1"]
+        },
+        {
+          "artifact_id": "acct-admin",
+          "difficulty": "Easy",
+          "ioc": { "type": "account", "value": "EXAMPLE\\Administrator" },
+          "evidence_locations": ["security:4624"]
+        }
+      ]
+    }
+  ]
+}

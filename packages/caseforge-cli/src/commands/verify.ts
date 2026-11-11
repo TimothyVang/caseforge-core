@@ -2,7 +2,7 @@
  * `caseforge verify <run-dir>` — validate VERDICT run artifacts + custody, and
  * check the custody of every finding in verdict.json (cited and replay-clean).
  */
-import { validateRun, readVerdict, checkFindingsCustody } from "@verdict/caseforge-sdk"
+import { validateRun, readVerdict, checkFindingsCustody, attestUsedFallback } from "@verdict/caseforge-sdk"
 
 export async function verify(args: string[]): Promise<number> {
   const runDir = args[0]
@@ -17,6 +17,12 @@ export async function verify(args: string[]): Promise<number> {
   console.log(`  artifacts present: ${r.present.join(", ") || "(none)"}`)
   if (r.missing.length) console.log(`  artifacts missing: ${r.missing.join(", ")}`)
   console.log(`  manifest custody: ${r.custodyValid ? "verified" : "NOT verified"}`)
+
+  // used_fallback attestation — read from the runtime run result / caseforge run
+  // record, never synthesized. Informational: it does not change the exit code.
+  const fb = await attestUsedFallback(runDir)
+  const fbText = fb.used_fallback === null ? "unknown" : fb.used_fallback ? "yes" : "no"
+  console.log(`  used_fallback: ${fbText} (source: ${fb.used_fallback_source})`)
 
   // Findings custody (only when a verdict.json exists).
   const doc = await readVerdict(runDir)

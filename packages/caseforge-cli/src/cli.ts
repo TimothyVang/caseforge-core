@@ -46,11 +46,11 @@ function usage(): void {
   console.log(`caseforge — headless DFIR agentic core
 
   doctor                          check environment + config prerequisites
-  auth status|login|logout         manage ChatGPT subscription OAuth for verdict
+  auth status|login|logout         manage ChatGPT / SuperGrok subscription OAuth
   models [--privacy M] [--evidence C]   list routes and privacy permissions
   investigate <evidence-path>     run a privacy-gated DFIR investigation
       [--privacy local-only|redacted-cloud|cloud-ok] [--evidence synthetic|public|approved|sensitive]
-      [--route ID] [--command triage|disk|memory|evtx|network|...]
+      [--route ID] [--command triage|disk|memory|evtx|network|...] [--cloud-ack]
   verify <run-dir>                validate VERDICT run artifacts + custody
   tui [run-dir]                                             read-only workbench
   gateway start | benchmark run | ocr <id> | ingest <path>   (planned)
@@ -80,6 +80,7 @@ async function main(): Promise<number> {
         command: typeof flags.command === "string" ? flags.command : undefined,
         runDir: typeof flags["run-dir"] === "string" ? (flags["run-dir"] as string) : undefined,
         noVerify: flags["no-verify"] === true,
+        cloudAck: flags["cloud-ack"] === true,
       })
     case "tui":
       return await launchTui(positionals[1])

@@ -137,3 +137,56 @@ export function redact(
   }
   return out
 }
+
+// --- operator cloud-ack gate -----------------------------------------------
+
+/**
+ * Env var an operator sets to acknowledge that an outward cloud investigation
+ * may leave the host. Defaults OFF — absence means refuse.
+ */
+export const CLOUD_ACK_ENV = "CASEFORGE_CLOUD_ACK"
+
+export interface CloudAckOptions {
+  /** Physical location of the chosen route. Only "cloud" requires acknowledgement. */
+  location: ProviderLocation
+  /** Value of CASEFORGE_CLOUD_ACK (or any operator-supplied env value). */
+  ack?: string | boolean
+  /** Explicit --cloud-ack CLI flag. */
+  ackFlag?: boolean
+}
+
+export interface CloudAckResult {
+  required: boolean
+  acknowledged: boolean
+  allowed: boolean
+  reason: string
+}
+
+/** Truthy acknowledgement values (env strings or a boolean). */
+function isAcknowledged(ack: string | boolean | undefined, ackFlag: boolean | undefined): boolean {
+  if (ackFlag === true || ack === true) return true
+  if (typeof ack !== "string") return false
+  return ["1", "true", "yes", "on"].includes(ack.trim().toLowerCase())
+}
+
+/**
+ * Gate an outward cloud call on an explicit operator acknowledgement. This is a
+ * harness guard distinct from the privacy router: even when the privacy router
+ * permits a cloud route (cloud-ok/approved), caseforge still refuses to make the
+ * outward call unless the operator has explicitly acknowledged the egress. Local
+ * routes never require acknowledgement. Fail-closed: default off.
+ */
+export function cloudAckGate(opts: CloudAckOptions): CloudAckResult {
+  if (opts.location !== "cloud") {
+    return { required: false, acknowledged: true, allowed: true, reason: "local route — no operator acknowledgement required" }
+  }
+  const acknowledged = isAcknowledged(opts.ack, opts.ackFlag)
+  return acknowledged
+    ? { required: true, acknowledged: true, allowed: true, reason: "operator acknowledged an outward cloud investigation" }
+    : {
+        required: true,
+        acknowledged: false,
+        allowed: false,
+        reason: `outward cloud investigation refused: set ${CLOUD_ACK_ENV}=1 (or pass --cloud-ack) to acknowledge that evidence/prompts leave the host`,
+      }
+}

@@ -25,6 +25,25 @@
           "limit": { "context": 131072, "output": 8192 }
         }
       }
+    },
+    "xai": {
+      "name": "xAI Grok (cloud)",
+      "npm": "@ai-sdk/xai",
+      "options": {
+        "apiKey": "{env:XAI_API_KEY}"
+      },
+      "models": {
+        "grok-3": {
+          "name": "Grok 3",
+          "id": "grok-3",
+          "tool_call": true
+        },
+        "grok-3-mini": {
+          "name": "Grok 3 Mini",
+          "id": "grok-3-mini",
+          "tool_call": true
+        }
+      }
     }
   },
   "mcp": {
