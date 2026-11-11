@@ -889,6 +889,13 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
     `1. Perform the ${command} workflow directly with MCP tool calls: open the case, call the appropriate forensic MCP tools, and audit each important tool output with findevil-agent-mcp_audit_append (path exactly '${custody.auditPath}').\n` +
     `2. Then perform the reason+seal phase directly with MCP tool calls. If you have verified cited findings, use verify_finding, judge_findings, and correlate_findings. If you do not have verified cited findings, skip finding_approved and seal the audited tool outputs only. Before finalize, append kind report_qa with report_qa={"checks":[],"status":"PASS"} and report_qa_sha256='${LAB_REPORT_QA_SHA256}'. Always run findevil-agent-mcp_audit_verify with path='${custody.auditPath}', then SEAL with findevil-agent-mcp_manifest_finalize using case_id='${custody.caseId}', run_id='${custody.runId}', started_at='${custody.startedAt}', signer:'ed25519', audit_log_path='${custody.auditPath}', output_path='${custody.manifestPath}', then call findevil-agent-mcp_manifest_verify with the argument named manifest_path set to '${custody.manifestPath}' and audit_log_path='${custody.auditPath}'. Do NOT pass signer:'stub' — prefer signer:'ed25519'.\n` +
     (memoryStorePath ? `3. Use MEMORY_STORE_PATH exactly as '${memoryStorePath}' for every memory_recall or memory_remember call; never use ~/.local/state/findevil/memory.sqlite in this run.\n` : "") +
+    `SEALING RULE (critical): Multi-class evidence is required for CONFIRMED findings only — NOT for sealing. ` +
+    `Single-class EVTX directories (one or more .evtx files only) MUST still complete audit_verify → manifest_finalize → manifest_verify. ` +
+    `Verdict may be INDETERMINATE with HYPOTHESIS findings. Never stop because you lack three artifact classes.\n` +
+    `Preferred local-EVTX tool allowlist (use these exact names only when possible): ` +
+    `findevil-mcp_case_open, findevil-mcp_evtx_query, findevil-agent-mcp_audit_append, findevil-agent-mcp_audit_verify, ` +
+    `findevil-agent-mcp_manifest_finalize, findevil-agent-mcp_manifest_verify, findevil-agent-mcp_verify_finding, findevil-agent-mcp_judge_findings. ` +
+    `Never invent a tool named invalid, run, bash, or shell.\n` +
     `Use only the VERDICT forensic MCP tools with their exact opencode names: findevil-mcp_<tool> and findevil-agent-mcp_<tool>. ` +
     `Open the supplied evidence first with findevil-mcp_case_open using image_path exactly '${evidence.caseOpenPath}'` +
     (expectedSha256 ? ` and expected_sha256 exactly '${expectedSha256}'` : "") +
@@ -1000,9 +1007,15 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
   if (opts.noVerify) return runCode
 
   // Close the loop: locate the produced run/case dir and validate it.
+  // CASEFORGE_NO_AGENT_FALLBACK=1: fail closed (no find_evil_auto) for strict agent measurement.
+  const noAgentFallback = process.env.CASEFORGE_NO_AGENT_FALLBACK === "1"
   if (!runDir) {
     console.error("[caseforge] investigation finished; no fresh run/case dir was produced to verify.")
     console.error("[caseforge] the run is incomplete until a new case directory is sealed and verified.")
+    if (noAgentFallback) {
+      console.error("[caseforge] CASEFORGE_NO_AGENT_FALLBACK=1 — skipping deterministic EVTX fallback")
+      return runCode === 0 ? 1 : runCode
+    }
     const fallbackRunDir = runLocalEvtxAutoFallback(evidence, env)
     if (fallbackRunDir) {
       await recordRunProvenance(fallbackRunDir, true)
@@ -1022,6 +1035,10 @@ export async function investigate(evidencePath: string | undefined, opts: Invest
   let verifyCode = await verify([runDir])
   let fallbackVerified = false
   if (verifyCode !== 0 || !caseIsSealed(runDir)) {
+    if (noAgentFallback) {
+      console.error("[caseforge] CASEFORGE_NO_AGENT_FALLBACK=1 — agent seal incomplete; not using find_evil_auto")
+      return verifyCode !== 0 ? verifyCode : 1
+    }
     const fallbackRunDir = runLocalEvtxAutoFallback(evidence, env)
     if (fallbackRunDir) {
       await recordRunProvenance(fallbackRunDir, true)
